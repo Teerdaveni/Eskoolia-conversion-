@@ -1,0 +1,44 @@
+from django.urls import path
+
+from .views import (
+	StudentAttendanceBulkStoreAPIView,
+	StudentAttendanceDownloadSampleAPIView,
+	StudentAttendanceImportAPIView,
+	StudentAttendanceHolidayAPIView,
+	StudentAttendanceIndexAPIView,
+	StudentAttendanceListCreateAPIView,
+	StudentAttendanceMonthlyReportAPIView,
+	StudentAttendanceRetrieveUpdateDeleteAPIView,
+	StudentAttendanceStoreAPIView,
+	StudentSearchAPIView,
+)
+from .subject_views import (
+	SubjectAttendanceHolidayStoreAPIView,
+	SubjectAttendanceIndexAPIView,
+	SubjectAttendanceReportAPIView,
+	SubjectAttendanceReportPrintAPIView,
+	SubjectAttendanceReportSearchAPIView,
+	SubjectAttendanceSearchAPIView,
+	SubjectAttendanceStoreAPIView,
+)
+
+urlpatterns = [
+	path("student-attendance/", StudentAttendanceListCreateAPIView.as_view(), name="student-attendance-list-create"),
+	path("student-attendance/<int:pk>/", StudentAttendanceRetrieveUpdateDeleteAPIView.as_view(), name="student-attendance-detail"),
+	path("student-attendance/index/", StudentAttendanceIndexAPIView.as_view(), name="student-attendance-index"),
+	path("student-attendance/import/", StudentAttendanceImportAPIView.as_view(), name="student-attendance-import"),
+	path("student-attendance/download-sample/", StudentAttendanceDownloadSampleAPIView.as_view(), name="student-attendance-download-sample"),
+	path("student-attendance/bulk-store/", StudentAttendanceBulkStoreAPIView.as_view(), name="student-attendance-bulk-store"),
+	path("student-attendance/student-search/", StudentSearchAPIView.as_view(), name="student-search"),
+	path("student-attendance/store/", StudentAttendanceStoreAPIView.as_view(), name="student-attendance-store"),
+	path("student-attendance/holiday/", StudentAttendanceHolidayAPIView.as_view(), name="student-attendance-holiday"),
+	path("student-attendance/report/", StudentAttendanceMonthlyReportAPIView.as_view(), name="student-attendance-report"),
+
+	path("subject-attendance/index/", SubjectAttendanceIndexAPIView.as_view(), name="subject-attendance-index"),
+	path("subject-attendance/search/", SubjectAttendanceSearchAPIView.as_view(), name="subject-attendance-search"),
+	path("subject-attendance/store/", SubjectAttendanceStoreAPIView.as_view(), name="subject-attendance-store"),
+	path("subject-attendance/holiday-store/", SubjectAttendanceHolidayStoreAPIView.as_view(), name="student-subject-holiday-store"),
+	path("subject-attendance/report/", SubjectAttendanceReportAPIView.as_view(), name="subject-attendance-report-criteria"),
+	path("subject-attendance/report-search/", SubjectAttendanceReportSearchAPIView.as_view(), name="subject-attendance-report-search"),
+	path("subject-attendance/report/print/", SubjectAttendanceReportPrintAPIView.as_view(), name="subject-attendance-print"),
+]

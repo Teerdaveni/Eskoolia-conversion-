@@ -1,0 +1,82 @@
+:root {
+  --bg: #f5f7fb;
+  --surface: #ffffff;
+  --surface-muted: #f9fafc;
+  --line: #dfe3eb;
+  --text: #1f2937;
+  --text-muted: #667085;
+  --primary: #2166d1;
+  --primary-soft: #eaf2ff;
+  --success: #0e9f6e;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: linear-gradient(180deg, #f9fbff 0%, #f3f6fb 100%);
+  color: var(--text);
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.erp-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 250px 1fr;
+}
+
+@media (max-width: 900px) {
+  .erp-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sms-breadcrumb {
+  margin-bottom: 16px;
+}
+
+.container-fluid {
+  width: 100%;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.p-0 {
+  padding: 0;
+}
+
+.mb-20 {
+  margin-bottom: 20px;
+}
+
+.white-box {
+  background: #fff;
+  border: 1px solid #e4e9f2;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.legacy-panel table {
+  font-size: 13px;
+}
+
+.legacy-panel th {
+  font-weight: 600;
+}
+
+.legacy-panel td,
+.legacy-panel th {
+  vertical-align: top;
+}

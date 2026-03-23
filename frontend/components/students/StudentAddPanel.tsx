@@ -1,0 +1,436 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { apiRequestWithRefresh } from "@/lib/api-auth";
+
+type ApiList<T> = T[] | { results?: T[] };
+
+type StudentCategory = {
+  id: number;
+  name: string;
+};
+
+type Guardian = {
+  id: number;
+  full_name: string;
+  relation: string;
+  phone: string;
+};
+
+type SchoolClass = {
+  id: number;
+  name: string;
+};
+
+type Section = {
+  id: number;
+  school_class: number;
+  name: string;
+};
+
+type StudentCreatePayload = {
+  admission_no: string;
+  roll_no?: string;
+  first_name: string;
+  last_name?: string;
+  date_of_birth?: string;
+  gender: string;
+  blood_group?: string;
+  category?: number;
+  guardian?: number;
+  current_class?: number;
+  current_section?: number;
+  is_disabled: boolean;
+  is_active: boolean;
+};
+
+function listData<T>(value: ApiList<T>): T[] {
+  return Array.isArray(value) ? value : value.results || [];
+}
+
+async function apiGet<T>(path: string): Promise<T> {
+  return apiRequestWithRefresh<T>(path, { headers: { "Content-Type": "application/json" } });
+}
+
+async function apiPost<T>(path: string, payload: unknown): Promise<T> {
+  return apiRequestWithRefresh<T>(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+function fieldStyle() {
+  return {
+    width: "100%",
+    height: 38,
+    border: "1px solid var(--line)",
+    borderRadius: 8,
+    padding: "0 10px",
+    background: "#fff",
+  } as const;
+}
+
+function boxStyle() {
+  return {
+    background: "var(--surface)",
+    border: "1px solid var(--line)",
+    borderRadius: "var(--radius)",
+    padding: 16,
+  } as const;
+}
+
+function buttonStyle(color = "var(--primary)") {
+  return {
+    height: 36,
+    border: `1px solid ${color}`,
+    background: color,
+    color: "#fff",
+    borderRadius: 8,
+    padding: "0 14px",
+    cursor: "pointer",
+    fontWeight: 600,
+  } as const;
+}
+
+function parseError(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "Unable to save student.";
+}
+
+export function StudentAddPanel() {
+  const [categories, setCategories] = useState<StudentCategory[]>([]);
+  const [guardians, setGuardians] = useState<Guardian[]>([]);
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
+
+  const [admissionNo, setAdmissionNo] = useState("");
+  const [rollNo, setRollNo] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState("male");
+  const [bloodGroup, setBloodGroup] = useState("");
+  const [religion, setReligion] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [guardianId, setGuardianId] = useState("");
+  const [classId, setClassId] = useState("");
+  const [sectionId, setSectionId] = useState("");
+  const [isDisabled, setIsDisabled] = useState(false);
+  const [isActive, setIsActive] = useState(true);
+
+  const [newGuardianName, setNewGuardianName] = useState("");
+  const [newGuardianRelation, setNewGuardianRelation] = useState("Father");
+  const [newGuardianPhone, setNewGuardianPhone] = useState("");
+  const [newGuardianEmail, setNewGuardianEmail] = useState("");
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const filteredSections = useMemo(() => {
+    if (!classId) return [];
+    return sections.filter((section) => String(section.school_class) === classId);
+  }, [sections, classId]);
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const [categoryData, guardianData, classData, sectionData] = await Promise.all([
+        apiGet<ApiList<StudentCategory>>("/api/v1/students/categories/"),
+        apiGet<ApiList<Guardian>>("/api/v1/students/guardians/"),
+        apiGet<ApiList<SchoolClass>>("/api/v1/core/classes/"),
+        apiGet<ApiList<Section>>("/api/v1/core/sections/"),
+      ]);
+      setCategories(listData(categoryData));
+      setGuardians(listData(guardianData));
+      setClasses(listData(classData));
+      setSections(listData(sectionData));
+    } catch (loadError) {
+      setError(parseError(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  useEffect(() => {
+    if (!classId) {
+      setSectionId("");
+      return;
+    }
+    const exists = filteredSections.some((section) => String(section.id) === sectionId);
+    if (!exists) {
+      setSectionId("");
+    }
+  }, [classId, filteredSections, sectionId]);
+
+  const resetStudentForm = () => {
+    setAdmissionNo("");
+    setRollNo("");
+    setFirstName("");
+    setLastName("");
+    setDateOfBirth("");
+    setGender("male");
+    setBloodGroup("");
+    setReligion("");
+    setCategoryId("");
+    setGuardianId("");
+    setClassId("");
+    setSectionId("");
+    setIsDisabled(false);
+    setIsActive(true);
+  };
+
+  const addGuardianInline = async () => {
+    if (!newGuardianName.trim() || !newGuardianRelation.trim() || !newGuardianPhone.trim()) {
+      setError("Guardian name, relation, and phone are required.");
+      return;
+    }
+    try {
+      setError("");
+      const created = await apiPost<Guardian>("/api/v1/students/guardians/", {
+        full_name: newGuardianName.trim(),
+        relation: newGuardianRelation.trim(),
+        phone: newGuardianPhone.trim(),
+        email: newGuardianEmail.trim(),
+      });
+      setGuardians((prev) => [...prev, created]);
+      setGuardianId(String(created.id));
+      setNewGuardianName("");
+      setNewGuardianRelation("Father");
+      setNewGuardianPhone("");
+      setNewGuardianEmail("");
+      setSuccess("Guardian added and selected.");
+    } catch (createError) {
+      setError(parseError(createError));
+    }
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSuccess("");
+
+    if (!admissionNo.trim() || !firstName.trim() || !gender) {
+      setError("Admission No, First Name, and Gender are required.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError("");
+      const payload: StudentCreatePayload = {
+        admission_no: admissionNo.trim(),
+        roll_no: rollNo.trim() || undefined,
+        first_name: firstName.trim(),
+        last_name: lastName.trim() || undefined,
+        date_of_birth: dateOfBirth || undefined,
+        gender,
+        blood_group: bloodGroup.trim() || undefined,
+        category: categoryId ? Number(categoryId) : undefined,
+        guardian: guardianId ? Number(guardianId) : undefined,
+        current_class: classId ? Number(classId) : undefined,
+        current_section: sectionId ? Number(sectionId) : undefined,
+        is_disabled: isDisabled,
+        is_active: isActive,
+      };
+      await apiPost("/api/v1/students/students/", payload);
+      setSuccess("Student added successfully.");
+      resetStudentForm();
+    } catch (submitError) {
+      setError(parseError(submitError));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="legacy-panel">
+      <section className="sms-breadcrumb mb-20">
+        <div className="container-fluid">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+            <h1 style={{ margin: 0, fontSize: 24 }}>Add Student</h1>
+            <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Link href="/students/list" style={{ ...buttonStyle("#0ea5e9"), display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                  Student List
+                </Link>
+                <Link href="/students/multi-class" style={{ ...buttonStyle("#16a34a"), display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                  Multi Class Student
+                </Link>
+              </div>
+              <div style={{ display: "flex", gap: 8, color: "var(--text-muted)", fontSize: 13 }}>
+                <span>Dashboard</span>
+                <span>/</span>
+                <span>Student Information</span>
+                <span>/</span>
+                <span>Add Student</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="admin-visitor-area up_st_admin_visitor">
+        <div className="container-fluid p-0" style={{ display: "grid", gap: 12 }}>
+          <form onSubmit={submit}>
+            <div className="white-box" style={boxStyle()}>
+              <h3 style={{ marginTop: 0, marginBottom: 12 }}>Student Details</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10 }}>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Admission No *</label>
+                  <input value={admissionNo} onChange={(e) => setAdmissionNo(e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Roll No</label>
+                  <input value={rollNo} onChange={(e) => setRollNo(e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>First Name *</label>
+                  <input value={firstName} onChange={(e) => setFirstName(e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Last Name</label>
+                  <input value={lastName} onChange={(e) => setLastName(e.target.value)} style={fieldStyle()} />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Date Of Birth</label>
+                  <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Gender *</label>
+                  <select value={gender} onChange={(e) => setGender(e.target.value)} style={fieldStyle()}>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Blood Group</label>
+                  <select value={bloodGroup} onChange={(e) => setBloodGroup(e.target.value)} style={fieldStyle()}>
+                    <option value="">Select Blood Group</option>
+                    <option value="A+">A+</option>
+                    <option value="A-">A-</option>
+                    <option value="B+">B+</option>
+                    <option value="B-">B-</option>
+                    <option value="AB+">AB+</option>
+                    <option value="AB-">AB-</option>
+                    <option value="O+">O+</option>
+                    <option value="O-">O-</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Religion</label>
+                  <select value={religion} onChange={(e) => setReligion(e.target.value)} style={fieldStyle()}>
+                    <option value="">Select Religion</option>
+                    <option value="Islam">Islam</option>
+                    <option value="Hinduism">Hinduism</option>
+                    <option value="Christianity">Christianity</option>
+                    <option value="Buddhism">Buddhism</option>
+                    <option value="Sikhism">Sikhism</option>
+                    <option value="Judaism">Judaism</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Category</label>
+                  <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} style={fieldStyle()}>
+                    <option value="">Select Category</option>
+                    {categories.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Class</label>
+                  <select value={classId} onChange={(e) => setClassId(e.target.value)} style={fieldStyle()}>
+                    <option value="">Select Class</option>
+                    {classes.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Section</label>
+                  <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={fieldStyle()} disabled={!classId}>
+                    <option value="">Select Section</option>
+                    {filteredSections.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, paddingTop: 24 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                    <input type="checkbox" checked={isDisabled} onChange={(e) => setIsDisabled(e.target.checked)} />
+                    Disabled
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                    <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+                    Active
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="white-box" style={{ ...boxStyle(), marginTop: 12 }}>
+              <h3 style={{ marginTop: 0, marginBottom: 12 }}>Guardian Details (Quick Add)</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10 }}>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Full Name</label>
+                  <input value={newGuardianName} onChange={(e) => setNewGuardianName(e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Relation</label>
+                  <select value={newGuardianRelation} onChange={(e) => setNewGuardianRelation(e.target.value)} style={fieldStyle()}>
+                    <option value="Father">Father</option>
+                    <option value="Mother">Mother</option>
+                    <option value="Others">Others</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Phone</label>
+                  <input value={newGuardianPhone} onChange={(e) => setNewGuardianPhone(e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Email</label>
+                  <input value={newGuardianEmail} onChange={(e) => setNewGuardianEmail(e.target.value)} style={fieldStyle()} />
+                </div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <button type="button" onClick={() => void addGuardianInline()} style={buttonStyle("#0ea5e9")}>
+                  Add Guardian
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
+              <button type="submit" disabled={saving || loading} style={buttonStyle()}>
+                {saving ? "Saving..." : "Save Student"}
+              </button>
+            </div>
+          </form>
+
+          {loading && <p style={{ margin: 0, color: "var(--text-muted)" }}>Loading form data...</p>}
+          {error && <p style={{ margin: 0, color: "var(--warning)" }}>{error}</p>}
+          {success && <p style={{ margin: 0, color: "#0f766e" }}>{success}</p>}
+        </div>
+      </section>
+    </div>
+  );
+}

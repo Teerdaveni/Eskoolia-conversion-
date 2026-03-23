@@ -1,0 +1,110 @@
+export type SidebarItem = {
+  id: string;
+  name: string;
+  route?: string;
+  children?: SidebarItem[];
+};
+
+export const sidebarMenu: SidebarItem[] = [
+  { id: "dashboard", name: "Dashboard", route: "/dashboard" },
+  {
+    id: "student-info",
+    name: "Student Info",
+    children: [
+      { id: "student-category", name: "Student Category", route: "/students/category" },
+      { id: "add-student", name: "Add Student", route: "/students/add" },
+      { id: "student-list", name: "Student List", route: "/students/list" },
+      { id: "multi-class-student", name: "Multi Class Student", route: "/students/multi-class" },
+      { id: "delete-student-record", name: "Delete Student Record", route: "/students/delete-record" },
+      { id: "unassigned-student", name: "Unassigned Student", route: "/students/unassigned" },
+      { id: "student-attendance", name: "Student Attendance", route: "/attendance/student" },
+      { id: "student-group", name: "Student Group", route: "/students/group" },
+      { id: "student-promote", name: "Student Promote", route: "/students/promote" },
+      { id: "disabled-students", name: "Disabled Students", route: "/students/disabled" },
+      { id: "subject-wise-attendance", name: "Subject Wise Attendance", route: "/attendance/subject" },
+      { id: "student-export", name: "Student Export", route: "/students/export" },
+      { id: "sms-sending-time", name: "SMS Sending Time", route: "/students/sms-sending-time" },
+    ],
+  },
+  {
+    id: "academics",
+    name: "Academics",
+    children: [
+      { id: "lessons", name: "Lesson", route: "/academics/lessons" },
+      { id: "topics", name: "Topic", route: "/academics/topics" },
+      { id: "lesson-planner", name: "Lesson Planner", route: "/academics/lesson-planner" },
+      { id: "add-homework", name: "Add Homework", route: "/academics/homework-add" },
+      { id: "homework-list", name: "Homework List", route: "/academics/homework-list" },
+      { id: "homework-report", name: "Homework Evaluation Report", route: "/academics/homework-evaluation-report" },
+      { id: "upload-content", name: "Upload Content", route: "/academics/upload-content" },
+      { id: "assignment-list", name: "Assignment List", route: "/academics/assignment-list" },
+      { id: "study-material-list", name: "Study Material List", route: "/academics/study-material-list" },
+      { id: "syllabus-list", name: "Syllabus List", route: "/academics/syllabus-list" },
+      { id: "other-downloads-list", name: "Other Downloads List", route: "/academics/other-downloads-list" },
+    ],
+  },
+  {
+    id: "examination",
+    name: "Examination",
+    children: [
+      { id: "exam-type", name: "Exam Type", route: "/exams/exam-type" },
+      { id: "exam-setup", name: "Exam Setup", route: "/exams/setup" },
+      { id: "exam-schedule", name: "Exam Schedule", route: "/exams/schedule" },
+      { id: "exam-schedule-report", name: "Exam Schedule Report", route: "/exams/schedule-report" },
+      { id: "exam-attendance", name: "Exam Attendance", route: "/exams/attendance" },
+      { id: "exam-attendance-report", name: "Exam Attendance Report", route: "/exams/attendance-report" },
+      { id: "marks-register", name: "Marks Register", route: "/exams/marks-register" },
+      { id: "add-marks", name: "Add Marks", route: "/exams/marks-register-create" },
+      { id: "result-publish", name: "Result Publish", route: "/exams/result-publish" },
+      { id: "student-mark-sheet", name: "Student Mark Sheet", route: "/exams/student-report" },
+      { id: "merit-list", name: "Merit List", route: "/exams/merit-report" },
+      { id: "online-exam", name: "Online Exam", route: "/exams/online-exam" },
+      { id: "admit-card", name: "Admit Card", route: "/exams/exam-plan/admit-card" },
+      { id: "seat-plan", name: "Seat Plan", route: "/exams/exam-plan/seat-plan" },
+    ],
+  },
+  {
+    id: "fees",
+    name: "Fees",
+    children: [
+      { id: "fees-group", name: "Fees Group", route: "/fees/groups" },
+      { id: "fees-type", name: "Fees Type", route: "/fees/types" },
+      { id: "fees-master", name: "Fees Master", route: "/fees/master" },
+      { id: "fees-collection", name: "Fees Collection", route: "/fees/payments" },
+      { id: "fees-due", name: "Fees Due", route: "/fees/due" },
+      { id: "fees-carry-forward", name: "Fees Carry Forward", route: "/fees/carry-forward" },
+    ],
+  },
+  {
+    id: "library",
+    name: "Library",
+    children: [
+      { id: "book-categories", name: "Book Categories", route: "/library/categories" },
+      { id: "books", name: "Books", route: "/library/books" },
+      { id: "library-members", name: "Library Members", route: "/library/members" },
+      { id: "book-issues", name: "Book Issues", route: "/library/issues" },
+    ],
+  },
+  {
+    id: "human-resource",
+    name: "Human Resource",
+    children: [
+      { id: "hr-departments", name: "HR Departments", route: "/hr/departments" },
+      { id: "hr-designations", name: "HR Designations", route: "/hr/designations" },
+      { id: "hr-staff", name: "HR Staff", route: "/hr/staff" },
+      { id: "hr-leave-types", name: "HR Leave Types", route: "/hr/leave-types" },
+      { id: "hr-leave-requests", name: "HR Leave Requests", route: "/hr/leave-requests" },
+      { id: "hr-payroll", name: "HR Payroll", route: "/hr/payroll" },
+    ],
+  },
+  {
+    id: "finance",
+    name: "Finance",
+    children: [
+      { id: "chart-of-accounts", name: "Chart Of Accounts", route: "/finance/chart-of-accounts" },
+      { id: "bank-accounts", name: "Bank Accounts", route: "/finance/bank-accounts" },
+      { id: "ledger-entries", name: "Ledger Entries", route: "/finance/ledger" },
+      { id: "fund-transfer", name: "Fund Transfer", route: "/finance/fund-transfer" },
+    ],
+  },
+];

@@ -1,0 +1,1564 @@
+# Implementation Log
+
+## Update 041
+
+- Date: 2026-03-21
+- Module: Session/Auth Hardening + Fees Carry Forward Completion
+- Tasks completed:
+  - Hardened dashboard authentication flow to eliminate unauthenticated module actions causing 401 during create operations:
+    - added dashboard `AuthGate` that validates token presence and performs refresh before rendering protected pages
+    - redirects to `/login` when access/refresh session is unavailable or refresh fails
+  - Strengthened shared API auth helper behavior:
+    - if refresh fails or a request remains 401 after retry, clears tokens and redirects to login
+  - Implemented fees carry-forward posting backend flow:
+    - `POST /api/v1/fees/assignments/carry-forward/`
+    - carries unpaid due amounts from one academic year to another
+    - merges into existing target assignment rows when matching scope exists
+    - returns created/updated counters and total carried amount
+  - Added carry-forward frontend page:
+    - Route: `/fees/carry-forward`
+    - source year, target year, due date selection
+    - execution summary after posting
+  - Added sidebar link for carry-forward page
+  - Completed tracker item for carry-forward and due management
+- Files changed:
+  - rewrite/frontend/components/layout/AuthGate.tsx
+  - rewrite/frontend/app/(dashboard)/layout.tsx
+  - rewrite/frontend/lib/api-auth.ts
+  - rewrite/backend/apps/fees/views.py
+  - rewrite/frontend/lib/fees-api.ts
+  - rewrite/frontend/components/fees/FeesCarryForwardPanel.tsx
+  - rewrite/frontend/app/(dashboard)/fees/carry-forward/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed and generated `/fees/carry-forward`
+  - build includes all existing fees routes without regressions
+- Risks or blockers:
+  - Bank payment slip processing parity remains pending and is the next fees task
+- Next immediate task:
+  - Implement bank payment slip processing parity under Fees and Finance
+
+## Update 040
+
+- Date: 2026-03-21
+- Module: Fees and Finance (Collection/Payment Records + Due Management Partial)
+- Tasks completed:
+  - Extended frontend fees API utility to cover next parity calls:
+    - payments list/create/delete
+    - payment receipt fetch
+    - assignment summary
+    - overdue assignment list
+  - Added fees collection page:
+    - Route: `/fees/payments`
+    - payment create form (assignment, amount, method, paid time, reference, note)
+    - payment list with delete action
+    - receipt preview via payments receipt endpoint
+  - Added fees due management page:
+    - Route: `/fees/due`
+    - summary cards from assignment summary endpoint
+    - overdue assignment table from overdue endpoint
+  - Added sidebar links for fees collection and fees due pages
+  - Completed tracker item for fees collection/payment records
+  - Advanced carry-forward/due task to in-progress with due-report coverage completed
+- Files changed:
+  - rewrite/frontend/lib/fees-api.ts
+  - rewrite/frontend/components/fees/FeesPaymentsPanel.tsx
+  - rewrite/frontend/components/fees/FeesDuePanel.tsx
+  - rewrite/frontend/app/(dashboard)/fees/payments/page.tsx
+  - rewrite/frontend/app/(dashboard)/fees/due/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `npm run build` passed and generated:
+    - `/fees/payments`
+    - `/fees/due`
+  - `get_errors` reported no diagnostics in changed frontend files
+- Risks or blockers:
+  - Carry-forward transaction/posting behavior is still pending backend+frontend parity work
+- Next immediate task:
+  - Implement carry-forward posting flow and bank payment slip processing parity
+
+## Update 039
+
+- Date: 2026-03-21
+- Module: Core Setup Auth Reliability + Fees and Finance (Fees Group/Type/Master Setup Parity)
+- Tasks completed:
+  - Fixed repeated 401 issues during create flows (notably class/section/class-period setup screens):
+    - added shared frontend auth API helper with automatic access-token refresh retry on 401
+    - refresh endpoint used: `POST /api/v1/auth/refresh/`
+    - helper now supports empty responses for DELETE/204 flows
+  - Updated setup screens to use refresh-safe API client:
+    - `CoreSetupPanel` API calls migrated to shared helper
+    - `ClassPeriodsPanel` API calls migrated to shared helper
+  - Added full section management in Core Setup page:
+    - section list load
+    - section create form (`school_class`, `name`, `capacity`)
+    - replaced placeholder section tab with functional UI
+  - Implemented Fees first chunk frontend parity against existing backend CRUD:
+    - Route: `/fees/groups` (fees group create/list/edit/delete)
+    - Route: `/fees/types` (fees type create/list/edit/delete)
+    - Route: `/fees/master` (fees assignment/master create/list/edit/delete)
+  - Added shared fees API utility:
+    - groups/types/assignments CRUD wrappers
+    - academic year and student lookup loaders
+  - Added sidebar links for fees pages:
+    - Fees Group
+    - Fees Type
+    - Fees Master
+  - Completed tracker item for fees group/type/master setup
+- Files changed:
+  - rewrite/frontend/lib/api-auth.ts
+  - rewrite/frontend/components/core/CoreSetupPanel.tsx
+  - rewrite/frontend/components/core/ClassPeriodsPanel.tsx
+  - rewrite/frontend/lib/fees-api.ts
+  - rewrite/frontend/components/fees/FeesGroupsPanel.tsx
+  - rewrite/frontend/components/fees/FeesTypesPanel.tsx
+  - rewrite/frontend/components/fees/FeesMasterPanel.tsx
+  - rewrite/frontend/app/(dashboard)/fees/groups/page.tsx
+  - rewrite/frontend/app/(dashboard)/fees/types/page.tsx
+  - rewrite/frontend/app/(dashboard)/fees/master/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `npm run build` passed and generated:
+    - `/setup`
+    - `/setup/class-periods`
+    - `/fees/groups`
+    - `/fees/types`
+    - `/fees/master`
+  - `get_errors` reported no diagnostics in changed frontend files
+- Risks or blockers:
+  - Existing pages not yet migrated to shared auth-refresh helper may still show 401 on expired token until they are migrated in subsequent increments
+- Next immediate task:
+  - Continue Fees and Finance module with fees collection/payment records and due-management parity
+
+## Update 038
+
+- Date: 2026-03-21
+- Module: Examination and Result (Exam Plan Parity - Admit Card + Seat Plan)
+- Tasks completed:
+  - Added exam plan domain models:
+    - `AdmitCardSetting`
+    - `AdmitCard`
+    - `SeatPlanSetting`
+    - `SeatPlan`
+  - Added duplicate-safe constraints:
+    - unique setting scope per `school + academic_year`
+    - unique generated row per `school + academic_year + exam_term + student`
+  - Added exam plan parity APIView endpoints:
+    - `GET/POST /api/v1/exams/exam-plan/admit-card/setting/`
+    - `GET /api/v1/exams/exam-plan/admit-card/`
+    - `POST /api/v1/exams/exam-plan/admit-card/search/`
+    - `POST /api/v1/exams/exam-plan/admit-card/generate/`
+    - `GET/POST /api/v1/exams/exam-plan/seat-plan/setting/`
+    - `GET /api/v1/exams/exam-plan/seat-plan/`
+    - `POST /api/v1/exams/exam-plan/seat-plan/search/`
+    - `POST /api/v1/exams/exam-plan/seat-plan/generate/`
+  - Implemented legacy-compatible behavior:
+    - criteria validation using `exam`, `class`, `section`
+    - schedule-ready prerequisite check before search
+    - generated-id preload (`old_admit_ids`, `seat_plan_ids`)
+    - bulk generate payload compatibility via nested `data[*][student_record_id]`
+  - Added Next.js parity screens:
+    - Route: `/exams/exam-plan/admit-card`
+    - Route: `/exams/exam-plan/seat-plan`
+  - Added sidebar links for Admit Card and Seat Plan screens
+  - Generated and applied migration:
+    - `exams.0010_seatplansetting_seatplan_admitcardsetting_admitcard_and_more`
+  - Completed tracker item for exam plan parity module
+- Files changed:
+  - rewrite/backend/apps/exams/models.py
+  - rewrite/backend/apps/exams/serializers.py
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/backend/apps/exams/urls.py
+  - rewrite/backend/apps/exams/migrations/0010_seatplansetting_seatplan_admitcardsetting_admitcard_and_more.py
+  - rewrite/frontend/components/exams/ExamPlanAdmitCardPanel.tsx
+  - rewrite/frontend/components/exams/ExamPlanSeatPlanPanel.tsx
+  - rewrite/frontend/app/(dashboard)/exams/exam-plan/admit-card/page.tsx
+  - rewrite/frontend/app/(dashboard)/exams/exam-plan/seat-plan/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations exams` generated expected migration
+  - `python manage.py migrate` applied `exams.0010_seatplansetting_seatplan_admitcardsetting_admitcard_and_more` successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed and generated `/exams/exam-plan/admit-card` and `/exams/exam-plan/seat-plan`
+  - `get_errors` reported no diagnostics in changed backend/frontend files
+- Risks or blockers:
+  - Legacy exam plan image upload + rich print-template pixel parity is not included in this pass and can be added in a dedicated template/media parity increment
+- Next immediate task:
+  - Move to next pending module outside Examination roadmap
+
+## Update 037
+
+- Date: 2026-03-21
+- Module: Examination and Result (Missed Print Backfill + Online Exam Parity)
+- Tasks completed:
+  - Backfilled missed print parity endpoints from previously completed report flows:
+    - `GET /api/v1/exams/exam-report/student-print/`
+    - `GET /api/v1/exams/exam-report/merit-print/`
+  - Added print actions in report UI screens:
+    - Student marksheet page now opens student print endpoint with selected criteria
+    - Merit list page now opens merit print endpoint with selected criteria
+  - Added online exam parity models and constraints:
+    - `OnlineExam`
+    - `OnlineExamTake`
+    - duplicate-safe constraints for exam scope/title and exam/student take pair
+  - Added online exam APIView endpoints:
+    - `GET /api/v1/exams/online-exam/`
+    - `POST /api/v1/exams/online-exam/store/`
+    - `POST /api/v1/exams/online-exam/update/`
+    - `POST /api/v1/exams/online-exam/delete/`
+    - `GET /api/v1/exams/online-exam/publish/{online_exam_id}/`
+    - `GET /api/v1/exams/online-exam/publish-cancel/{online_exam_id}/`
+    - `GET /api/v1/exams/online-exam/marks-register/{online_exam_id}/`
+    - `GET /api/v1/exams/online-exam/result/{online_exam_id}/`
+  - Implemented duplicate-title guard for online exam create/update (case-insensitive within class/section/subject scope)
+  - Added Next.js online exam parity page:
+    - Route: `/exams/online-exam`
+    - Includes add/edit/delete/publish/cancel flows and marks/result preview actions
+  - Added sidebar navigation entry for online exam page
+  - Generated and applied migration:
+    - `exams.0009_onlineexam_onlineexamtake_and_more`
+  - Completed tracker item for online exam module parity
+- Files changed:
+  - rewrite/backend/apps/exams/models.py
+  - rewrite/backend/apps/exams/serializers.py
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/backend/apps/exams/urls.py
+  - rewrite/backend/apps/exams/migrations/0009_onlineexam_onlineexamtake_and_more.py
+  - rewrite/frontend/components/exams/ExamStudentReportPanel.tsx
+  - rewrite/frontend/components/exams/ExamMeritReportPanel.tsx
+  - rewrite/frontend/components/exams/OnlineExamPanel.tsx
+  - rewrite/frontend/app/(dashboard)/exams/online-exam/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations exams` generated expected migration
+  - `python manage.py migrate` applied `exams.0009_onlineexam_onlineexamtake_and_more` successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed and generated `/exams/online-exam`
+  - `get_errors` reported no diagnostics in changed backend/frontend files
+- Risks or blockers:
+  - Online exam take/attempt submission and question-bank level parity are pending deeper legacy route conversion and should be handled in a dedicated pass
+- Next immediate task:
+  - Continue Examination roadmap with exam-plan parity module and then move to next pending module set
+
+## Update 036
+
+- Date: 2026-03-21
+- Module: Examination and Result (Exam Reports and Merit Views Parity - APIView + Next.js)
+- Tasks completed:
+  - Added report parity APIView endpoints:
+    - `GET /api/v1/exams/exam-report/index/`
+    - `POST /api/v1/exams/exam-report/student-search/`
+    - `POST /api/v1/exams/exam-report/merit-search/`
+  - Implemented student marksheet report search flow:
+    - criteria payload parity keys (`exam`, `class`, optional `section`, `student`)
+    - returns subject-wise marks/grade/GPA/attendance/remarks from marks-register data
+    - returns grand total and average GPA
+    - includes publish-status flag for selected scope
+  - Implemented merit list report flow:
+    - criteria payload parity keys (`exam`, `class`, optional `section`)
+    - aggregates per-student totals across subject registers
+    - computes average GPA and ranking position
+    - returns ordered merit list output
+  - Added Next.js report parity pages:
+    - Route: `/exams/student-report` (student marksheet report)
+    - Route: `/exams/merit-report` (merit list report)
+  - Added sidebar links for student marksheet and merit list pages
+  - Completed tracker item for exam reports and merit views
+- Files changed:
+  - rewrite/backend/apps/exams/serializers.py
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/backend/apps/exams/urls.py
+  - rewrite/frontend/components/exams/ExamStudentReportPanel.tsx
+  - rewrite/frontend/components/exams/ExamMeritReportPanel.tsx
+  - rewrite/frontend/app/(dashboard)/exams/student-report/page.tsx
+  - rewrite/frontend/app/(dashboard)/exams/merit-report/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed and generated `/exams/student-report` and `/exams/merit-report`
+- Risks or blockers:
+  - Printable layout parity for legacy blade-based report print templates is pending and can be added in a dedicated print-template pass
+- Next immediate task:
+  - Implement online exam module parity (exam list/take/marking/register flows) under Examination module
+
+## Update 035
+
+- Date: 2026-03-21
+- Module: Examination and Result (Result Publishing Parity - APIView + Next.js)
+- Tasks completed:
+  - Added result publishing parity model:
+    - `ExamResultPublish` for persisted publish state by scope (`exam_term`, `class`, optional `section`)
+  - Added result publish APIView endpoints:
+    - `GET /api/v1/exams/exam-result-publish/index/`
+    - `POST /api/v1/exams/exam-result-publish/search/`
+    - `POST /api/v1/exams/exam-result-publish/store/`
+  - Implemented result publishing flow parity:
+    - criteria payload parity keys (`exam`, `class`, optional `section`)
+    - search response includes mark-entry count + published status/timestamp
+    - publish action blocks when no mark-register entries exist for scope
+    - publish action stores `is_published`, `published_at`, `published_by`
+  - Added Next.js result publish parity page:
+    - Route: `/exams/result-publish`
+    - Criteria search + scope summary + publish action
+  - Added sidebar navigation entry for result publish page
+  - Generated and applied migration:
+    - `exams.0008_examresultpublish_and_more`
+  - Completed tracker item for result publishing
+  - Stabilized local Next.js dev runtime issue from stale chunk cache:
+    - cleared `.next` and cache artifacts
+    - verified fresh compile and route load for `/exams/exam-type`
+    - confirmed that stale/multiple dev instances can cause missing chunk/module errors on Windows
+- Files changed:
+  - rewrite/backend/apps/exams/models.py
+  - rewrite/backend/apps/exams/serializers.py
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/backend/apps/exams/urls.py
+  - rewrite/backend/apps/exams/migrations/0008_examresultpublish_and_more.py
+  - rewrite/frontend/components/exams/ExamResultPublishPanel.tsx
+  - rewrite/frontend/app/(dashboard)/exams/result-publish/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations exams` generated expected migration
+  - `python manage.py migrate` applied `exams.0008_examresultpublish_and_more` successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed and generated `/exams/result-publish`
+- Risks or blockers:
+  - Full marksheet and merit-report print-template parity remains pending under exam reports task
+- Next immediate task:
+  - Implement exam reports and merit views parity (search/report/print flows) under Examination module
+
+## Update 034
+
+- Date: 2026-03-21
+- Module: Examination and Result (Marks Register and Grade Processing Parity - APIView + Next.js)
+- Tasks completed:
+  - Added marks register parity data models:
+    - `ExamMarkRegister` for per-student subject totals and grade outcome
+    - `ExamMarkRegisterPart` for per-exam-part marks linked to exam setup rows
+  - Added marks register APIView endpoints:
+    - `GET /api/v1/exams/exam-marks/index/`
+    - `POST /api/v1/exams/exam-marks/create-search/`
+    - `POST /api/v1/exams/exam-marks/store/`
+    - `POST /api/v1/exams/exam-marks/report-search/`
+  - Implemented create-search parity behavior:
+    - criteria payload parity keys (`exam`, `class`, optional `section`, `subject`)
+    - attendance prerequisite check before mark entry
+    - setup-part matrix loading from exam setup rows
+    - existing marks/remarks/absence state preload for edit parity
+  - Implemented marks store parity behavior:
+    - nested payload save support via `markStore[record_id][...]`
+    - per-part marks save into mark register part rows
+    - aggregate total mark calculation per student-subject
+    - grade processing from `ExamGradeScale` range match using computed percent
+    - stores `total_gpa_point` and `total_gpa_grade` in register rows
+  - Implemented report-search parity behavior:
+    - returns marks register rows with part-wise marks and computed grade fields
+  - Added Next.js parity screens:
+    - Route: `/exams/marks-register` (report/list)
+    - Route: `/exams/marks-register-create` (add/edit marks)
+  - Added sidebar navigation links for marks register and add marks pages
+  - Generated and applied migration:
+    - `exams.0007_exammarkregister_exammarkregisterpart_and_more`
+  - Completed tracker item for marks register and grade processing
+- Files changed:
+  - rewrite/backend/apps/exams/models.py
+  - rewrite/backend/apps/exams/serializers.py
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/backend/apps/exams/urls.py
+  - rewrite/backend/apps/exams/migrations/0007_exammarkregister_exammarkregisterpart_and_more.py
+  - rewrite/frontend/components/exams/ExamMarksRegisterCreatePanel.tsx
+  - rewrite/frontend/components/exams/ExamMarksRegisterReportPanel.tsx
+  - rewrite/frontend/app/(dashboard)/exams/marks-register-create/page.tsx
+  - rewrite/frontend/app/(dashboard)/exams/marks-register/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations exams` generated expected migration
+  - `python manage.py migrate` applied `exams.0007_exammarkregister_exammarkregisterpart_and_more` successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed and generated `/exams/marks-register` and `/exams/marks-register-create`
+- Risks or blockers:
+  - Legacy deployment-specific branches (University and custom exam-rule modules) are excluded in this increment and remain for dedicated parity passes
+- Next immediate task:
+  - Implement result publishing parity flows and result report endpoints/screens under Examination module
+
+## Update 033
+
+- Date: 2026-03-21
+- Module: Examination and Result (Exam Attendance Parity - APIView + Next.js)
+- Tasks completed:
+  - Added attendance domain models for exams module parity:
+    - `ExamAttendance`
+    - `ExamAttendanceChild`
+  - Added exam attendance APIView endpoints:
+    - `GET /api/v1/exams/exam-attendance/index/`
+    - `POST /api/v1/exams/exam-attendance/create-search/`
+    - `POST /api/v1/exams/exam-attendance/store/`
+    - `POST /api/v1/exams/exam-attendance/report-search/`
+  - Implemented attendance create/search/store flow aligned to legacy behavior:
+    - criteria payload parity keys (`exam`, `class`, `section`, `subject`, `attendance_date`)
+    - schedule/date validation for selected criteria before save
+    - attendance rows accepted in nested map shape (`attendance[record_id][...]`) and persisted via child rows
+  - Implemented attendance report search output flow for class/section/subject/date criteria
+  - Added Next.js parity screens:
+    - Route: `/exams/attendance` (create/search/store)
+    - Route: `/exams/attendance-report` (report search/list)
+  - Added sidebar navigation links for exam attendance and exam attendance report
+  - Generated and applied migration:
+    - `exams.0006_examattendance_examattendancechild_and_more`
+  - Completed tracker item for exam attendance
+- Files changed:
+  - rewrite/backend/apps/exams/models.py
+  - rewrite/backend/apps/exams/serializers.py
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/backend/apps/exams/urls.py
+  - rewrite/backend/apps/exams/migrations/0006_examattendance_examattendancechild_and_more.py
+  - rewrite/frontend/components/exams/ExamAttendanceCreatePanel.tsx
+  - rewrite/frontend/components/exams/ExamAttendanceReportPanel.tsx
+  - rewrite/frontend/app/(dashboard)/exams/attendance/page.tsx
+  - rewrite/frontend/app/(dashboard)/exams/attendance-report/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations exams` generated expected migration
+  - `python manage.py migrate` applied `exams.0006_examattendance_examattendancechild_and_more` successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed and generated `/exams/attendance` and `/exams/attendance-report`
+- Risks or blockers:
+  - Legacy controller has additional branch-specific checks in some deployments; current parity follows the core attendance create/search/store/report paths already mapped from legacy routes/controllers
+- Next immediate task:
+  - Implement marks register and grade processing parity (APIs + Next.js screens) under Examination module
+
+## Update 032
+
+- Date: 2026-03-21
+- Module: Examination and Result (Exam Schedule Report/Print Parity)
+- Tasks completed:
+  - Added exam schedule report parity APIs:
+    - `POST /api/v1/exams/exam-schedule/report-search/`
+    - `GET /api/v1/exams/exam-schedule/print/`
+  - Implemented report search behavior aligned to legacy criteria flow:
+    - accepts `exam_type`/`exam`, `class`, optional `section`
+    - supports `section=0` as all-sections parity
+    - returns routine list with exam/class/section context labels
+  - Implemented print payload endpoint for report output flow
+  - Added Next.js report parity page:
+    - Route: `/exams/schedule-report`
+    - Criteria search + routine table + print action
+  - Added sidebar navigation entry for exam schedule report
+  - Completed exam scheduling tracker item after report/print parity coverage
+- Files changed:
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/backend/apps/exams/urls.py
+  - rewrite/frontend/components/exams/ExamScheduleReportPanel.tsx
+  - rewrite/frontend/app/(dashboard)/exams/schedule-report/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed and generated `/exams/schedule-report`
+  - `get_errors` reported no diagnostics in changed files
+- Risks or blockers:
+  - Printable layout is API-powered and browser-print based; pixel-level PDF template parity with legacy blade can be added in a dedicated print-template pass
+- Next immediate task:
+  - Implement exam attendance parity (criteria/search/store/report) with the same strict field/flow and duplicate-safe behavior
+
+## Update 031
+
+- Date: 2026-03-21
+- Module: Examination and Result (Exam Scheduling Parity - APIView + Next.js)
+- Tasks completed:
+  - Added `ExamRoutine` model to mirror legacy exam schedule routine storage scope:
+    - `exam_term`, `school_class`, `section`, `subject`, `teacher`, `exam_period`, `exam_date`, `start_time`, `end_time`, `room`
+  - Added exam schedule APIView endpoints:
+    - `GET /api/v1/exams/exam-schedule/index/`
+    - `POST /api/v1/exams/exam-schedule/search/`
+    - `POST /api/v1/exams/exam-schedule/store/`
+  - Implemented schedule parity flow:
+    - criteria load (exam types/classes/sections/teachers/exam periods)
+    - subject source derived from exam setup rows for selected exam/class/section
+    - routine save payload supports legacy-like keys (`class_id`, `section_id`, `exam_type_id`, `routine[]`)
+    - replace-then-insert behavior for target schedule scope, matching legacy overwrite flow
+  - Added duplicate and conflict prevention for routine create:
+    - duplicate subject rows in same request blocked
+    - duplicate date/period slots in same request blocked
+    - invalid time range (`end_time <= start_time`) blocked
+    - DB uniqueness constraints added for subject scope and date/period scope
+    - `section_id=0` and optional row IDs normalized to null-equivalent handling for all-section parity
+  - Added Next.js exam schedule parity page:
+    - Route: `/exams/schedule`
+    - Criteria search panel + editable routine rows + existing schedule table + save action
+  - Added sidebar navigation link for exam schedule page
+  - Generated and applied migration:
+    - `exams.0005_examroutine_and_more`
+- Files changed:
+  - rewrite/backend/apps/exams/models.py
+  - rewrite/backend/apps/exams/serializers.py
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/backend/apps/exams/urls.py
+  - rewrite/backend/apps/exams/migrations/0005_examroutine_and_more.py
+  - rewrite/frontend/components/exams/ExamSchedulePanel.tsx
+  - rewrite/frontend/app/(dashboard)/exams/schedule/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations exams` generated expected migration
+  - `python manage.py migrate` applied migration successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed and generated `/exams/schedule`
+  - `get_errors` reported no diagnostics in changed backend/frontend files
+- Risks or blockers:
+  - Legacy exam schedule report/print pages and printable layout parity are still pending
+  - Room entity parity currently stores room as text in routine row; class-room master relation parity can be tightened later
+- Next immediate task:
+  - Implement exam schedule report/search/print parity endpoints and report page, then continue to exam attendance parity
+
+## Update 030
+
+- Date: 2026-03-21
+- Module: Examination and Result (Duplicate Name/Title Guard Hardening)
+- Tasks completed:
+  - Hardened duplicate prevention for name/title creation paths in exams module (case-insensitive):
+    - `Exam` name duplicate check by `school + academic_year + name`
+    - `ExamGradeScale` name duplicate check by `school + name`
+    - `ExamType` title duplicate check by `school + academic_year + title` in store/update APIViews
+  - Normalized title/name inputs by trimming whitespace before duplicate checks and save
+  - Hardened exam setup row validation:
+    - rejects blank `exam_title[]` values
+    - rejects duplicate `exam_title[]` entries within the same request payload (case-insensitive)
+  - Kept setup replacement flow intact for same criteria scope while preserving duplicate guards at validation/constraint level
+- Files changed:
+  - rewrite/backend/apps/exams/serializers.py
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed successfully
+  - `get_errors` reported no diagnostics for changed backend files
+- Risks or blockers:
+  - Existing legacy data with case-only naming collisions (if present) may fail on future updates where duplicate guards now enforce stricter behavior
+- Next immediate task:
+  - Proceed to exam scheduling parity implementation with duplicate-schedule guards and route/flow matching legacy exam schedule behavior
+
+## Update 029
+
+- Date: 2026-03-21
+- Module: Examination and Result (Exam Setup Mark Distribution Parity - APIView + Next.js)
+- Tasks completed:
+  - Added `ExamSetup` model to represent legacy mark distribution rows (`SmExamSetup`) with parity fields:
+    - `exam_term`, `school_class`, `section`, `subject`, `exam_title`, `exam_mark`, `academic_year`, `created_by`, `school`
+  - Added exam setup APIView parity endpoints:
+    - `GET /api/v1/exams/exam-setup/index/`
+    - `GET /api/v1/exams/exam-setup/search/`
+    - `POST /api/v1/exams/exam-setup/store/`
+    - `GET /api/v1/exams/exam-setup/subjects/`
+  - Implemented legacy-like exam setup store behavior:
+    - request key parity: `class`, `section`, `subject`, `exam_term_id`, `total_exam_mark`, `totalMark`, `exam_title[]`, `exam_mark[]`
+    - strict total check parity (`total_exam_mark == totalMark`) before save
+    - replaces prior rows for same class/section/subject/exam term scope before writing current row set
+  - Added Next.js exam setup page parity:
+    - Route: `/exams/setup`
+    - Criteria panel (exam term/class/section/subject/exam mark)
+    - Mark distribution row table with add/delete and total footer
+    - Submit flow to setup-store endpoint with parity keys
+    - Existing setup auto-load by criteria (`exam-setup/search`)
+  - Added route-level query preselect behavior for `exam_type_id` from exam type page action link
+  - Generated and applied migration:
+    - `exams.0004_examsetup_examsetup_uq_exam_setup_scope_title`
+- Files changed:
+  - rewrite/backend/apps/exams/models.py
+  - rewrite/backend/apps/exams/serializers.py
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/backend/apps/exams/urls.py
+  - rewrite/backend/apps/exams/migrations/0004_examsetup_examsetup_uq_exam_setup_scope_title.py
+  - rewrite/frontend/components/exams/ExamSetupPanel.tsx
+  - rewrite/frontend/app/(dashboard)/exams/setup/page.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations exams` generated expected migration
+  - `python manage.py migrate` applied migration successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed with `/exams/setup` static route generation
+  - `get_errors` reported no diagnostics for changed files
+- Risks or blockers:
+  - Legacy exam setup includes additional University-module and dynamic assigned-subject restrictions that are not yet included
+  - Full exam schedule creation from setup/store flow parity is still pending in dedicated exam scheduling task
+- Next immediate task:
+  - Implement exam scheduling parity (routine date/time/teacher/room with duplicate-schedule guards) and connect it to setup-created data
+
+## Update 028
+
+- Date: 2026-03-21
+- Module: Examination and Result (Exam Type CRUD Parity - APIView + Next.js)
+- Tasks completed:
+  - Extended `ExamType` model for legacy exam-type fields used by PHP flow:
+    - `academic_year` (nullable scope), `active_status`, `is_average`, `average_mark`
+  - Added APIView-only exam type parity endpoints:
+    - `GET /api/v1/exams/exam-type/`
+    - `GET /api/v1/exams/exam-type/edit/{id}/`
+    - `POST /api/v1/exams/exam-type/store/`
+    - `POST /api/v1/exams/exam-type/update/`
+    - `GET /api/v1/exams/exam-type/delete/{id}/`
+  - Implemented legacy-like behavior in API:
+    - request key parity (`exam_type_title`, `is_average`, `average_mark`, `id`)
+    - duplicate title guard by school + current academic year
+    - update flow parity and delete guard when exam type is already used by exams
+  - Added Next.js exam type parity page:
+    - Route: `/exams/exam-type`
+    - Left form panel for add/edit with average passing checkbox and conditional average mark input
+    - Right list panel with edit/delete actions and exam setup action button
+  - Added temporary exam setup route placeholder page:
+    - Route: `/exams/setup`
+  - Added sidebar navigation links for `Exam Type` and `Exam Setup`
+- Files changed:
+  - rewrite/backend/apps/exams/models.py
+  - rewrite/backend/apps/exams/serializers.py
+  - rewrite/backend/apps/exams/views.py
+  - rewrite/backend/apps/exams/urls.py
+  - rewrite/backend/apps/exams/migrations/0003_remove_examtype_uq_exam_type_school_title_and_more.py
+  - rewrite/frontend/components/exams/ExamTypePanel.tsx
+  - rewrite/frontend/app/(dashboard)/exams/exam-type/page.tsx
+  - rewrite/frontend/app/(dashboard)/exams/setup/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations exams` generated:
+    - `exams.0003_remove_examtype_uq_exam_type_school_title_and_more`
+  - `python manage.py migrate` applied exams migration successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed with new routes `/exams/exam-type` and `/exams/setup`
+  - `get_errors` reported no diagnostics in changed backend/frontend files
+- Risks or blockers:
+  - Full legacy exam setup workflow from `exam_setup.blade.php` (class/section/subject selection + mark distribution matrix + submit logic) is still pending
+  - University-module branches are not included yet in this increment
+- Next immediate task:
+  - Implement exam setup parity APIView endpoints + full Next.js setup screen/table behavior, then start exam scheduling parity
+
+## Update 027
+
+- Date: 2026-03-21
+- Module: Attendance (Subject-Wise Attendance Parity - APIView + Next.js)
+- Tasks completed:
+  - Added `SubjectAttendance` model to match legacy `sm_subject_attendances` behavior:
+    - `student`, `subject`, `student_record_id`, `class_id`, `section_id`, `attendance_date`, `attendance_type`, `notes`, `notify`
+  - Added APIView-only subject attendance backend routes:
+    - `GET /api/v1/attendance/subject-attendance/index/`
+    - `GET /api/v1/attendance/subject-attendance/search/`
+    - `POST /api/v1/attendance/subject-attendance/store/`
+    - `POST /api/v1/attendance/subject-attendance/holiday-store/`
+    - `GET /api/v1/attendance/subject-attendance/report/`
+    - `POST /api/v1/attendance/subject-attendance/report-search/`
+    - `GET /api/v1/attendance/subject-attendance/report/print/`
+  - Implemented subject-wise attendance flow parity in API:
+    - criteria + search output with class/section/subject/date context
+    - attendance row save using nested legacy-like payload map `attendance[record_id][...]`
+    - holiday mark/unmark by class/section/subject/date
+    - monthly report aggregation with per-day symbols and P/L/A/F/H totals
+  - Added Next.js parity pages:
+    - `/attendance/subject` for subject-wise attendance criteria/search/store/holiday flow
+    - `/attendance/subject-report` for report criteria + monthly report table + print link call
+  - Added sidebar navigation for the new subject attendance pages
+  - Registered `SubjectAttendance` model in admin
+  - Generated and applied migration:
+    - `attendance.0004_subjectattendance`
+- Files changed:
+  - rewrite/backend/apps/attendance/models.py
+  - rewrite/backend/apps/attendance/serializers.py
+  - rewrite/backend/apps/attendance/subject_views.py
+  - rewrite/backend/apps/attendance/urls.py
+  - rewrite/backend/apps/attendance/admin.py
+  - rewrite/backend/apps/attendance/migrations/0004_subjectattendance.py
+  - rewrite/frontend/components/attendance/SubjectAttendancePanel.tsx
+  - rewrite/frontend/components/attendance/SubjectAttendanceReportPanel.tsx
+  - rewrite/frontend/app/(dashboard)/attendance/subject/page.tsx
+  - rewrite/frontend/app/(dashboard)/attendance/subject-report/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations attendance` generated expected migration
+  - `python manage.py migrate` applied `attendance.0004_subjectattendance` successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed with new routes `/attendance/subject` and `/attendance/subject-report`
+  - `get_errors` reported no diagnostics in changed backend/frontend files
+- Risks or blockers:
+  - Legacy University-module branches in subject attendance controller are not included in rewrite parity yet
+  - Subject selection in report follows first assigned subject parity assumption from controller flow
+- Next immediate task:
+  - Convert remaining student attendance print/report pages to fully match legacy printable layout behavior
+
+## Update 026
+
+- Date: 2026-03-21
+- Module: Attendance (Strict Parity Hardening - Bulk Staging + Notification Hook Path)
+- Tasks completed:
+  - Added explicit staging model parity for legacy bulk import flow:
+    - `StudentAttendanceBulk` model introduced to mirror PHP `StudentAttendanceBulk` temporary table behavior
+    - table fields include: `attendance_date`, `attendance_type`, `note`, `student_id`, `class_id`, `section_id`, `student_record_id`, `school_id`
+  - Reworked `POST /api/v1/attendance/student-attendance/bulk-store/` logic to follow legacy sequence more closely:
+    - parse file rows
+    - stage rows into `StudentAttendanceBulk`
+    - read staged rows snapshot
+    - compute class-section pairs for matching requested date
+    - delete staged rows for each student/date pair during pre-processing loop (legacy behavior)
+    - import attendance from staged snapshot into `StudentAttendance`
+    - delete mismatched-date staged rows by student id (legacy behavior)
+  - Added present-status notification hook path in store flow parity:
+    - in `StudentAttendanceStoreAPIView`, when attendance type is `P`, call compatibility notification service
+    - added `send_present_attendance_notifications()` and `send_sms_compat()` service hooks
+    - service uses configurable callable path `ATTENDANCE_SMS_SENDER`; defaults to no-op if not configured
+  - Registered `StudentAttendanceBulk` in admin
+  - Generated and applied migration:
+    - `attendance.0003_studentattendancebulk`
+- Files changed:
+  - rewrite/backend/apps/attendance/models.py
+  - rewrite/backend/apps/attendance/views.py
+  - rewrite/backend/apps/attendance/services.py
+  - rewrite/backend/apps/attendance/admin.py
+  - rewrite/backend/apps/attendance/migrations/0003_studentattendancebulk.py
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations attendance` generated expected migration
+  - `python manage.py migrate` applied `attendance.0003_studentattendancebulk` successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed (18 routes)
+  - `get_errors` reported no diagnostics for changed backend files
+- Risks or blockers:
+  - Notification hook is now parity-compatible but depends on `ATTENDANCE_SMS_SENDER` configuration for actual SMS gateway delivery
+  - Legacy importer references `student_record_id`; rewrite stores this field for parity but does not yet resolve a StudentRecord model mapping
+- Next immediate task:
+  - Move to next legacy module conversion with the same strict APIView + exact frontend parity pattern
+
+## Update 025
+
+- Date: 2026-03-21
+- Module: Attendance (Strict PHP Parity Completion - Import/Export + Bulk Store)
+- Tasks completed:
+  - Completed parity for remaining PHP attendance controller methods:
+    - `studentAttendanceImport()` -> `GET /api/v1/attendance/student-attendance/import/`
+    - `downloadStudentAtendanceFile()` -> `GET /api/v1/attendance/student-attendance/download-sample/`
+    - `studentAttendanceBulkStore()` -> `POST /api/v1/attendance/student-attendance/bulk-store/`
+  - Added Excel/CSV bulk import flow with same required request keys:
+    - `class`, `section`, `attendance_date`, `file`
+    - file type validation: `xlsx`, `xls`, `csv`
+    - date filtering by requested attendance date parity
+  - Added attendance sample download endpoint (xlsx) with legacy-style header row
+  - Added frontend attendance import page parity:
+    - Route: `/attendance/student/import`
+    - Class/Section/Attendance Date/File inputs
+    - Submit to bulk-store endpoint
+    - Download sample button wired to API sample endpoint
+  - Added import access from attendance screen and sidebar navigation
+  - Added `F` (Half Day) attendance type support in backend/frontend parity flow
+  - Generated and applied migration:
+    - `attendance.0002_alter_studentattendance_attendance_type`
+- Files changed:
+  - rewrite/backend/apps/attendance/views.py
+  - rewrite/backend/apps/attendance/urls.py
+  - rewrite/backend/apps/attendance/models.py
+  - rewrite/backend/apps/attendance/migrations/0002_alter_studentattendance_attendance_type.py
+  - rewrite/frontend/components/attendance/StudentAttendancePanel.tsx
+  - rewrite/frontend/components/attendance/StudentAttendanceImportPanel.tsx
+  - rewrite/frontend/app/(dashboard)/attendance/student/import/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations attendance` generated expected migration
+  - `python manage.py migrate` applied migration successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed with new route `/attendance/student/import`
+  - `get_errors` reported no diagnostics in changed files
+- Risks or blockers:
+  - Legacy temporary bulk table behavior (`StudentAttendanceBulk`) is functionally preserved through direct parsed-row processing; separate temp-table persistence parity is not implemented yet
+  - Legacy SMS side effects on attendance status transitions are still pending
+- Next immediate task:
+  - Implement explicit temp-bulk persistence layer parity and SMS side-effect hooks to fully mirror remaining legacy attendance behavior
+
+## Update 024
+
+- Date: 2026-03-21
+- Module: Attendance (Strict PHP Parity Rework - APIView + Frontend Field/Flow Alignment)
+- Tasks completed:
+  - Replaced attendance backend `ModelViewSet` implementation with strict DRF `APIView` classes as requested.
+  - Added PHP-style attendance API endpoints under `/api/v1/attendance/student-attendance/`:
+    - `GET /` and `POST /` (list/create)
+    - `GET/PUT/PATCH/DELETE /{id}/` (detail)
+    - `GET /index/` (criteria class list)
+    - `POST /student-search/` (PHP `studentSearch` parity)
+    - `POST /store/` (PHP `studentAttendanceStore` parity)
+    - `POST /holiday/` (PHP `studentAttendanceHoliday` parity)
+    - `GET /report/` (monthly summary)
+  - Preserved legacy request keys and flow in backend:
+    - search payload: `class`, `section`, `attendance_date`
+    - store payload: `id`, `attendance`, `note`, `date`, `mark_holiday`, with compatibility for `attendance_type`/`attendance_note`
+    - holiday payload: `class_id`, `section_id`, `attendance_date`, `purpose`
+  - Updated attendance type parity to include half-day (`F`) in addition to `P/A/L/H`.
+  - Reworked Next.js attendance page to match PHP page table flow:
+    - search now calls `POST /student-search/`
+    - save now calls `POST /store/` with PHP-style payload keys
+    - status radios/buttons now match PHP row options `P`, `L`, `A`, `F`
+    - added roll number column and half-day report column
+    - holiday mark/unmark continues through `POST /holiday/`
+- Files changed:
+  - rewrite/backend/apps/attendance/models.py
+  - rewrite/backend/apps/attendance/serializers.py
+  - rewrite/backend/apps/attendance/views.py
+  - rewrite/backend/apps/attendance/urls.py
+  - rewrite/frontend/components/attendance/StudentAttendancePanel.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed with `/attendance/student` route compiled
+  - in-editor diagnostics (`get_errors`) show no errors for changed backend/frontend files
+- Risks or blockers:
+  - Legacy Excel import/export attendance endpoints are not yet exposed in Django API
+  - Notification fanout (`send_sms`) side-effects are still pending parity wiring
+- Next immediate task:
+  - Implement attendance import/export API parity and absent/present notification hooks exactly as legacy controller behavior
+
+## Update 023
+
+- Date: 2026-03-17
+- Module: Core Setup (Class Period Management Screen) + Attendance Module (Backend + Frontend)
+- Tasks completed:
+  - Class period management screen added to frontend:
+    - Route: `/setup/class-periods`
+    - Add/edit/delete class periods matching legacy `SmClassTime` setup behavior
+    - Filter by `class` or `exam` period type
+    - Wired into sidebar navigation
+  - Attendance Django app created (`apps.attendance`):
+    - `StudentAttendance` model aligned with legacy `sm_student_attendances`:
+      - `student`, `class_id`, `section_id`, `attendance_date`, `attendance_type` (P/A/L/H), `notes`
+    - `GET /api/v1/attendance/student-attendance/students/` — student list for date with existing attendance
+    - `POST /api/v1/attendance/student-attendance/bulk/` — upsert per-student attendance matching legacy `studentAttendanceStore`
+    - `POST /api/v1/attendance/student-attendance/holiday/` — mark/unmark holiday for class/section/date matching legacy `studentAttendanceHoliday`
+    - `GET /api/v1/attendance/student-attendance/report/` — monthly attendance summary per student
+    - Standard CRUD via DRF ModelViewSet with school-scoped tenant filtering
+  - Student attendance frontend page:
+    - Route: `/attendance/student`
+    - Legacy search flow: class+section+date → load student list with current attendance
+    - Per-student P/A/L/H button selectors (color-coded to match PHP style)
+    - Notes field per student
+    - Mark All Holiday checkbox
+    - Holiday Day / Unmark Holiday buttons matching legacy bulk holiday flow
+    - Monthly report panel: month+year selector → attendance summary table per student
+  - Migration `attendance.0001_initial` created and applied
+- Files changed:
+  - rewrite/backend/apps/attendance/__init__.py
+  - rewrite/backend/apps/attendance/apps.py
+  - rewrite/backend/apps/attendance/models.py
+  - rewrite/backend/apps/attendance/serializers.py
+  - rewrite/backend/apps/attendance/views.py
+  - rewrite/backend/apps/attendance/urls.py
+  - rewrite/backend/apps/attendance/admin.py
+  - rewrite/backend/apps/attendance/migrations/__init__.py
+  - rewrite/backend/apps/attendance/migrations/0001_initial.py
+  - rewrite/backend/config/settings/base.py
+  - rewrite/backend/config/urls.py
+  - rewrite/frontend/components/core/ClassPeriodsPanel.tsx
+  - rewrite/frontend/app/(dashboard)/setup/class-periods/page.tsx
+  - rewrite/frontend/components/attendance/StudentAttendancePanel.tsx
+  - rewrite/frontend/app/(dashboard)/attendance/student/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py migrate` applied `attendance.0001_initial` successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed: 17 routes generated including /attendance/student and /setup/class-periods
+- Risks or blockers:
+  - Subject-wise attendance not yet implemented
+  - Attendance notification fanout (SMS/email on absent) not yet wired
+- Next immediate task:
+  - Implement subject-wise attendance parity, then begin Examination module
+
+## Update 022
+
+- Date: 2026-03-17
+- Module: Core Setup + Academics Frontend (Class Period Parity Foundation)
+- Tasks completed:
+  - Added core class period master model aligned to legacy `SmClassTime` usage:
+    - `period`
+    - `start_time`
+    - `end_time`
+    - `period_type`
+    - `is_break`
+  - Added tenant-scoped core class period API:
+    - `GET/POST /api/v1/core/class-periods/`
+    - supports `period_type` or `type` filtering for parity reads
+  - Registered class periods in Django admin
+  - Added migration `core.0002_classperiod` and applied it successfully
+  - Updated Lesson Planner frontend to consume class periods from core setup:
+    - period dropdown in planner form instead of relying only on free numeric IDs
+    - selected period is persisted as `class_period_id`
+    - edit flow restores selected class period
+    - planner rows table now shows the selected period label/time range
+  - Tightened weekly planner report parity:
+    - week rows now align by actual class periods when available
+    - cell cards display the matching period label/time range
+    - empty cells still preserve timetable slot structure from configured periods
+- Files changed:
+  - rewrite/backend/apps/core/models.py
+  - rewrite/backend/apps/core/serializers.py
+  - rewrite/backend/apps/core/views.py
+  - rewrite/backend/apps/core/urls.py
+  - rewrite/backend/apps/core/admin.py
+  - rewrite/backend/apps/core/migrations/0002_classperiod.py
+  - rewrite/frontend/components/academics/LessonModulePanels.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py migrate` applied `core.0002_classperiod` successfully
+  - `python manage.py check` passed with zero issues
+  - `npm run build` passed in `rewrite/frontend`
+  - `get_errors` returned no diagnostics for updated backend/frontend files
+- Risks or blockers:
+  - Planner parity now has true period slots, but full PHP routine-period dependency behavior still needs class-routine and planner joins to be tightened further
+  - Period management screen parity has not been built yet; current step provides the backend/API foundation and planner consumption
+- Next immediate task:
+  - Read the legacy class-time/routine screens and wire period-aware routine dependencies into the planner create flow so dropdown behavior matches the PHP forms more closely
+
+## Update 021
+
+- Date: 2026-03-17
+- Module: Academics Frontend+Backend (Teacher Selector + Weekly Grid Parity)
+- Tasks completed:
+  - Added teacher listing API for lesson planner form:
+    - `GET /api/v1/academics/lesson-planners/teachers/`
+    - Returns tenant-scoped active users with `id`, `username`, `full_name`
+    - Prefers users assigned to roles containing `teacher` (fallback to active users)
+  - Updated lesson planner form to use teacher dropdown selector instead of manual numeric teacher ID entry
+  - Upgraded weekly planner report UI from stacked cards into timetable-style grid table:
+    - day columns by date
+    - row slots per day (max count across week)
+    - cell cards showing lesson/topic/routine/teacher details
+  - Added teacher name resolution in weekly planner cells via teacher API map
+- Files changed:
+  - rewrite/backend/apps/academics/views.py
+  - rewrite/frontend/components/academics/LessonModulePanels.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `get_errors` on updated backend/frontend files returned no diagnostics
+  - frontend and backend remain type/syntax clean after the parity changes
+- Risks or blockers:
+  - Weekly grid currently models planner rows by API result ordering; period-slot semantics can be tightened further once class period master setup is fully parity-mapped
+- Next immediate task:
+  - Integrate class period master data into planner grid rows and add richer teacher metadata cards for final lesson planner UI parity polish
+
+## Update 020
+
+- Date: 2026-03-17
+- Module: Academics Frontend (Legacy Visual Frame Parity)
+- Tasks completed:
+  - Added legacy-style breadcrumb/header frame component for lesson module pages
+  - Added legacy-style admin container wrapper (`admin-visitor-area`, `container-fluid`, `p-0`) around Lesson, Topic, and Lesson Planner panels
+  - Applied `white-box` framing class to major content blocks in all three pages for closer Blade-like structure
+  - Added global CSS utility classes for legacy screen framing and table density:
+    - `sms-breadcrumb`, `container-fluid`, `p-0`, `mb-20`, `white-box`, `legacy-panel` table/row alignment rules
+- Files changed:
+  - rewrite/frontend/components/academics/LessonModulePanels.tsx
+  - rewrite/frontend/app/globals.css
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `get_errors` returned no diagnostics for updated frontend files
+  - `npm run build` completed successfully after visual frame updates
+- Risks or blockers:
+  - Full pixel-level parity of planner timetable grid interaction still needs a dedicated UI pass
+  - Some legacy iconography/spinner affordances are not yet mirrored
+- Next immediate task:
+  - Implement planner weekly grid interaction layout and teacher selector parity to match legacy views more closely
+
+## Update 019
+
+- Date: 2026-03-17
+- Module: Academics Frontend (Legacy Route Path Parity)
+- Tasks completed:
+  - Added legacy-style Lesson route aliases so PHP-like URLs work in rewrite frontend:
+    - `/lesson` -> redirects to `/academics/lessons`
+    - `/lesson/topic` -> redirects to `/academics/topics`
+    - `/lesson/lesson-planner` -> redirects to `/academics/lesson-planner`
+  - This reduces path mismatch during parity checks when comparing legacy navigation behavior
+- Files changed:
+  - rewrite/frontend/app/(dashboard)/lesson/page.tsx
+  - rewrite/frontend/app/(dashboard)/lesson/topic/page.tsx
+  - rewrite/frontend/app/(dashboard)/lesson/lesson-planner/page.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `get_errors` on all new alias route files returned no diagnostics
+- Risks or blockers:
+  - Full pixel-level style parity is still ongoing; route parity is now in place
+- Next immediate task:
+  - Continue tightening visual parity against legacy blade layouts (breadcrumb/box/table density and planner grid interaction)
+
+## Update 018
+
+- Date: 2026-03-17
+- Module: Academics Frontend+Backend (Lesson Management/Reports Parity)
+- Tasks completed:
+  - Enhanced lesson backend parity helpers:
+    - Added `DELETE /api/v1/academics/lessons/delete-group/?class_id=&section_id=&subject_id=`
+    - Added `DELETE /api/v1/academics/lesson-topics/delete-group/?id=`
+    - Added `GET /api/v1/academics/lesson-planners/weekly/` with optional `teacher_id` and `start_date`
+  - Upgraded Lesson frontend page parity behavior:
+    - row-level lesson edit (`PUT /lessons/{id}/`)
+    - row-level lesson delete (`DELETE /lessons/{id}/`)
+    - grouped lesson delete using class/section/subject scope
+    - grouped lesson report table via `/lessons/grouped/`
+  - Upgraded Topic frontend page parity behavior:
+    - topic detail title edit (`PATCH /lesson-topic-details/{id}/`)
+    - topic detail delete (`DELETE /lesson-topic-details/{id}/`)
+    - topic group delete using parity helper endpoint
+  - Upgraded Lesson Planner frontend page parity behavior:
+    - planner row edit (`PUT /lesson-planners/{id}/`) with normal/customize mode payload compatibility
+    - planner row delete (`DELETE /lesson-planners/{id}/`)
+    - weekly planner report section wired to `/lesson-planners/weekly/`
+    - planner overview report section wired to `/lesson-planners/overview/`
+- Files changed:
+  - rewrite/backend/apps/academics/views.py
+  - rewrite/frontend/components/academics/LessonModulePanels.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py check` passed
+  - `npm run build` passed (Next.js static routes generated successfully)
+  - `get_errors` on changed backend/frontend files returned no diagnostics
+- Risks or blockers:
+  - Teacher selector still uses direct numeric id entry; full staff picker parity is pending
+  - Weekly planner UI is API-driven report style, not the full legacy drag/grid interaction yet
+- Next immediate task:
+  - Implement staff/teacher picker parity and full weekly grid interactions to match legacy lesson planner screens exactly
+
+## Update 017
+
+- Date: 2026-03-17
+- Module: Academics Frontend (PHP Parity Alignment - Lesson, Topic, Lesson Planner)
+- Tasks completed:
+  - Added dedicated dashboard page for Lesson:
+    - Route: `/academics/lessons`
+    - PHP-style grouped lesson form using payload keys: `academic_year_id`, `class_id`, `section_id`, `subject_id`, `lesson: []`
+    - Lesson list table wired to `/api/v1/academics/lessons/`
+  - Added dedicated dashboard page for Topic:
+    - Route: `/academics/topics`
+    - PHP-style topic group form using payload keys: `academic_year_id`, `class_id`, `section_id`, `subject_id`, `lesson_id`, `topic: []`
+    - Topic group table wired to `/api/v1/academics/lesson-topics/`
+  - Added dedicated dashboard page for Lesson Planner:
+    - Route: `/academics/lesson-planner`
+    - Non-custom mode payload: single `topic` + `sub_topic`
+    - Customize mode payload: `customize='customize'`, `topic: []`, `sub_topic: []`
+    - Planner list table wired to `/api/v1/academics/lesson-planners/`
+  - Implemented dependent dropdown flow (class/section/subject/lesson) to match legacy form behavior
+  - Wired new pages into sidebar navigation:
+    - Lesson
+    - Topic
+    - Lesson Planner
+- Files changed:
+  - rewrite/frontend/components/academics/LessonModulePanels.tsx
+  - rewrite/frontend/app/(dashboard)/academics/lessons/page.tsx
+  - rewrite/frontend/app/(dashboard)/academics/topics/page.tsx
+  - rewrite/frontend/app/(dashboard)/academics/lesson-planner/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - Type check diagnostics (`get_errors`) for all changed frontend files: no errors
+  - `npm run build` in rewrite/frontend completed successfully
+  - Build output includes the new routes:
+    - `/academics/lessons`
+    - `/academics/topics`
+    - `/academics/lesson-planner`
+- Risks or blockers:
+  - Legacy PHP DataTable actions (edit/delete modals and some report-oriented views) are not yet mirrored in Next.js
+  - Planner page currently accepts `teacher_id` as user id input; teacher directory picker parity can be added next
+- Next immediate task:
+  - Implement the remaining Lesson module UI parity details: edit/update/delete actions, weekly planner grid view, and lesson/topic overview reports
+
+## Update 016
+
+- Date: 2026-03-17
+- Module: Academics (PHP Parity Alignment - Lesson, Topic, Lesson Planner)
+- Tasks completed:
+  - Added `Lesson` model aligned with legacy lesson rows:
+    - `class_id`, `section_id`, `subject_id`, `lesson_title`, `academic_year_id`, `active_status`, `user_id`
+  - Added `LessonTopic` parent model and `LessonTopicDetail` child model aligned with PHP topic grouping flow:
+    - `lesson_id`, `class_id`, `section_id`, `subject_id`
+    - topic detail rows with `topic_title`, `completed_status`, `competed_date`
+  - Added `LessonPlanner` and `LessonPlanTopic` models aligned with legacy planner flow:
+    - `day`, `lesson_id`, `topic_id`, `lesson_detail_id`, `topic_detail_id`, `sub_topic`, `lecture_youube_link`, `attachment`, `teaching_method`, `general_objectives`, `previous_knowlege`, `comp_question`, `zoom_setup`, `presentation`, `note`, `lesson_date`, `routine_id`, `room_id`, `class_period_id`
+    - custom planner topic rows via `LessonPlanTopic`
+  - Added API routes:
+    - `/api/v1/academics/lessons/`
+    - `/api/v1/academics/lesson-topics/`
+    - `/api/v1/academics/lesson-topic-details/`
+    - `/api/v1/academics/lesson-planners/`
+  - Added grouped lesson creation flow compatible with PHP-style payloads:
+    - accepts `lesson: []` with `class_id`, `section_id`, `subject_id`
+  - Added topic-group creation flow compatible with PHP-style payloads:
+    - accepts `topic: []` with `lesson_id`, `class_id`, `section_id`, `subject_id`
+    - appends topic-detail rows into an existing topic group when the group already exists
+  - Added lesson planner create/update flow compatible with PHP-style payloads:
+    - non-custom mode stores single `topic` + `sub_topic`
+    - `customize=customize` stores topic arrays through `LessonPlanTopic`
+  - Added filterable list behavior and planner overview endpoint for lesson-planner reads
+  - Registered all lesson parity models in admin
+  - Generated and applied migration: `academics.0004_lesson_lessonplanner_lessontopic_lessontopicdetail_and_more`
+- Files changed:
+  - rewrite/backend/apps/academics/models.py
+  - rewrite/backend/apps/academics/serializers.py
+  - rewrite/backend/apps/academics/views.py
+  - rewrite/backend/apps/academics/urls.py
+  - rewrite/backend/apps/academics/admin.py
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations academics` completed successfully
+  - `python manage.py migrate` completed successfully
+  - `python manage.py check` passed with zero issues
+  - Legacy payload smoke test passed:
+    - create lessons using `lesson: ['Introduction', 'Numbers']`
+    - create topic group using `topic: ['Topic One', 'Topic Two']`
+    - create lesson planner with single `topic` + `sub_topic`
+    - create customized lesson planner with `topic: [..]`, `sub_topic: [..]`, `customize='customize'`
+    - result: `lesson_ok=True topic_ok=True planner_ok=True planner_custom_ok=True`
+- Risks or blockers:
+  - Exact PHP weekly timetable aggregation views and notification fanout are not implemented yet; current work covers the backend data contracts and CRUD/planner flows
+  - Frontend parity for lesson/topic/planner screens is still pending
+- Next immediate task:
+  - Continue strict parity into Attendance or remaining academics/timetable detail flows, then build matching Next.js screens from the PHP views
+
+## Update 013
+- Tasks completed:
+  - Created new app `apps.academics` for academics module domain logic
+  - Added models:
+    - `ClassSubjectAssignment` (class/section to subject mapping, optional flag)
+    - `ClassTeacherAssignment` (teacher assignment by class/section/year scope)
+    - `ClassRoutineSlot` (day/time subject-teacher slots for routines)
+  - Added serializers for all 3 entities with school read-only tenancy handling
+  - Added tenant-scoped viewsets for all 3 entities
+  - Added API routes:
+    - `/api/v1/academics/class-subjects/`
+    - `/api/v1/academics/class-teachers/`
+    - `/api/v1/academics/class-routines/`
+  - Registered academics models in admin
+  - Registered `apps.academics` in Django settings
+  - Added route include `path("api/v1/academics/", include("apps.academics.urls"))`
+  - Generated and applied migration `academics.0001_initial`
+- Files changed:
+  - rewrite/backend/apps/academics/__init__.py
+  - rewrite/backend/apps/academics/apps.py
+  - rewrite/backend/apps/academics/models.py
+  - rewrite/backend/apps/academics/serializers.py
+  - rewrite/backend/apps/academics/views.py
+  - rewrite/backend/apps/academics/urls.py
+  - rewrite/backend/apps/academics/admin.py
+  - rewrite/backend/config/settings/base.py
+  - rewrite/backend/config/urls.py
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+- Validation performed:
+  - `python manage.py makemigrations academics` and `python manage.py migrate` completed successfully
+  - `python manage.py check` passed with zero issues
+  - JWT smoke test passed:
+    - create core subject + class
+    - create class-subject assignment
+    - create class routine slot
+    - create class teacher assignment
+- Risks or blockers:
+  - Lesson/topic planning, assignments, and syllabus publication are not yet implemented
+- Next immediate task:
+  - Implement optional subject handling + lesson/topic planning models and APIs
+
+## Update 014
+
+- Date: 2026-03-17
+- Module: Academics (PHP Parity Alignment - Optional Subject + Legacy Field Keys)
+- Tasks completed:
+  - Enhanced academics schema to align closer with legacy PHP behavior:
+    - Added `teacher`, `academic_year`, and `active_status` on class-subject assignments
+    - Added `active_status` on class-teacher assignments
+    - Added routine parity fields on class-routine slots: `day_id`, `class_period_id`, `room_id`, `is_break`, `active_status`
+  - Added optional subject parity models:
+    - `ClassOptionalSubjectSetup` (class-level optional setup with `gpa_above`)
+    - `OptionalSubjectAssignment` (student-level optional subject assignment)
+  - Added legacy-compatible API routes:
+    - `/api/v1/academics/optional-subject-setups/`
+    - `/api/v1/academics/optional-subject-assignments/`
+  - Updated serializers to accept legacy-style payload keys used by PHP flow:
+    - `class_id`, `section_id`, `subject_id`, `teacher_id`, `academic_year_id`, `student_id`
+  - Added serializer compatibility guard (`validators = []`) for duplicate source-mapped alias fields
+  - Registered optional subject models in admin
+  - Generated and applied migration: `academics.0002_classoptionalsubjectsetup_optionalsubjectassignment_and_more`
+- Files changed:
+  - rewrite/backend/apps/academics/models.py
+  - rewrite/backend/apps/academics/serializers.py
+  - rewrite/backend/apps/academics/views.py
+  - rewrite/backend/apps/academics/urls.py
+  - rewrite/backend/apps/academics/admin.py
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations academics` and `python manage.py migrate` completed successfully
+  - `python manage.py check` passed with zero issues
+  - Legacy-key payload smoke test passed:
+    - `POST /api/v1/academics/class-subjects/` with `class_id/subject_id/teacher_id`
+    - `POST /api/v1/academics/optional-subject-setups/` with `class_id/gpa_above`
+    - `POST /api/v1/academics/optional-subject-assignments/` with `student_id/subject_id`
+    - result: `legacy_keys_ok=True optional_setup_ok=True optional_assign_ok=True`
+- Risks or blockers:
+  - Full UI parity with PHP screens is still pending; this update focuses on backend contract/functionality parity
+  - Lesson/topic planning, assignment/study-material, and syllabus publication are still pending
+- Next immediate task:
+  - Implement Lesson and Topic Planning backend endpoints mirroring legacy flow, then wire matching frontend screens
+
+
+## Update 012
+
+- Date: 2026-03-17
+- Module: Student Information (Promotion Logic)
+- Tasks completed:
+  - Added `StudentPromotionHistory` model to track class/section/year promotions with actor and timestamp
+  - Added `StudentPromotionHistorySerializer` and `StudentPromoteRequestSerializer`
+  - Added `POST /api/v1/students/students/promote/` bulk promote action
+  - Added `GET /api/v1/students/promotions/` history endpoint
+  - Added tenant-safety checks in promote action for target class/section/year scope
+  - Updated tenant-scoped serializers in core/students modules to set `school` as read-only and rely on `perform_create` school injection
+  - Fixed tenant create fallback in students base viewset to support user school, request school, and superuser explicit school payload
+  - Generated and applied migration: `students.0002_studentpromotionhistory`
+- Files changed:
+  - rewrite/backend/apps/students/models.py
+  - rewrite/backend/apps/students/serializers.py
+  - rewrite/backend/apps/students/views.py
+  - rewrite/backend/apps/students/urls.py
+  - rewrite/backend/apps/core/serializers.py
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - `python manage.py makemigrations students` and `python manage.py migrate` completed successfully
+  - `python manage.py check` passed with zero issues
+  - End-to-end smoke test passed:
+    - login -> create class -> create student -> promote student -> read promotions history
+    - result: `promote_ok=True promoted=1 history_results_count=1`
+- Risks or blockers:
+  - Promotion currently updates class/section only; academic-year progression policy rules can be expanded next
+- Next immediate task:
+  - Start Academics module backend: class routine, class teacher assignment, subject assignment by class/section
+
+## Update 011
+
+- Date: 2026-03-17
+- Module: Student Information (Backend Conversion)
+- Tasks completed:
+  - Created new Django app `apps.students` aligned with existing tenant-scoped architecture
+  - Added student domain models:
+    - `Guardian` (school scoped)
+    - `Student` (admission/profile, class/section links, guardian link, disabled flag)
+    - `StudentDocument`
+    - `StudentTransferHistory`
+  - Added serializers for all student models with nested document read support in `StudentSerializer`
+  - Added tenant-safe viewsets for categories, guardians, students, documents, and transfer history
+  - Added router endpoints under `api/v1/students/`
+  - Registered student models in admin
+  - Registered `apps.students` in `INSTALLED_APPS`
+  - Registered `path("api/v1/students/", include("apps.students.urls"))` in root URLs
+  - Generated and applied migration `students.0001_initial`
+- Files changed:
+  - rewrite/backend/apps/students/__init__.py
+  - rewrite/backend/apps/students/apps.py
+  - rewrite/backend/apps/students/models.py
+  - rewrite/backend/apps/students/views.py
+  - rewrite/backend/apps/students/urls.py
+  - rewrite/backend/apps/students/admin.py
+  - rewrite/backend/config/settings/base.py
+  - rewrite/backend/config/urls.py
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+  - `python manage.py check` passed with zero issues
+  - `python manage.py makemigrations students` + `python manage.py migrate` applied successfully
+  - JWT smoke test successful:
+    - login endpoint returned access token
+    - `GET /api/v1/students/categories/` succeeded
+    - `GET /api/v1/students/students/` succeeded
+- Risks or blockers:
+  - File upload storage for student documents is currently URL-based (`file_url`), not binary upload
+- Next immediate task:
+
+## Update 010
+
+  - Fixed Django settings to call `load_dotenv()` so `.env` is loaded on startup
+  - Switched default DB engine to SQLite (no Postgres password required for dev); `.env` documents how to switch back to Postgres
+  - Fixed `requirements.txt` to use `psycopg2-binary` (already installed) instead of `psycopg[binary]`
+  - Installed `drf-spectacular` (was the only missing package)
+  - Generated and applied all Django migrations (tenancy, users, access_control, admissions, token_blacklist — 35 migrations total)
+  - Created superuser `admin` / `admin1234` for testing
+  - Ran `seed_permissions` — 5 base permissions seeded
+  - Started Django dev server on `http://127.0.0.1:8000` — health check confirmed: `{"status":"ok"}`
+  - Started Next.js dev server on `http://localhost:3000` — HTTP 200 confirmed
+  - Added `AcademicYear`, `Class`, `Section`, `Subject` models to `apps/core`
+  - Added serializers, viewsets, admin.py, and router for all four models
+  - Registered `api/v1/core/` URL prefix in `config/urls.py`
+  - Generated and applied `core.0001_initial` migration
+  - Built `CoreSetupPanel.tsx` with 4 tabs: Academic Years, Classes, Sections, Subjects — each with real API-backed create form and data table
+  - Added "Core Setup" to sidebar navigation
+- Files changed:
+  - rewrite/backend/config/settings/base.py
+  - rewrite/backend/.env
+  - rewrite/backend/requirements.txt
+  - rewrite/backend/apps/core/models.py
+  - rewrite/backend/apps/core/serializers.py
+  - rewrite/backend/apps/core/urls.py
+  - rewrite/backend/apps/core/admin.py
+  - rewrite/backend/config/urls.py
+  - rewrite/frontend/components/core/CoreSetupPanel.tsx
+  - rewrite/frontend/app/(dashboard)/setup/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+- Validation performed:
+  - `python manage.py migrate` — all migrations applied OK
+  - `Invoke-WebRequest http://127.0.0.1:8000/api/v1/auth/health/` — 200 OK
+  - `get_errors` on frontend files — 0 TS diagnostics
+- Risks or blockers:
+  - SQLite used for dev; switch to Postgres by setting `DB_ENGINE=django.db.backends.postgresql` in `.env` with correct credentials
+  - Sections tab is a placeholder — section create form requires a class FK; will add when Class list is populated
+- Next immediate task:
+  - Student Information module backend (Student model, parent/guardian, student categories) + frontend list page
+
+## Update 009
+
+- Date: 2026-03-17
+- Module: Role and Permission — Permission Assignment UI
+- Tasks completed:
+  - Added `Permission` and `PermissionApiResult` TypeScript types to `RoleManagementPanel.tsx`
+  - Updated `RoleItem` type to include `permission_ids: number[]`
+  - Added `allPermissions: Permission[]` state and `selectedPermIds: Set<number>` state
+  - Added `loadPermissions()` function — fetches `/api/v1/access-control/permissions/` and populates `allPermissions`
+  - Both `loadRoles()` and `loadPermissions()` now called on mount via `useEffect`
+  - Added `togglePerm(id)` helper to toggle a permission id in `selectedPermIds`
+  - Updated `startEdit(role)` — now also populates `selectedPermIds` from `role.permission_ids`
+  - Updated `cancelEdit()` — now resets `selectedPermIds` to empty Set
+  - Updated POST/PUT body to include `permission_ids: Array.from(selectedPermIds)`
+  - After successful create/update, `selectedPermIds` is reset to empty Set along with `roleName`
+  - Added permissions picker section inside the form: permissions grouped by module, each module rendered as a card with checkboxes
+  - Added `Permissions` column to the role table — shows count of assigned permissions per role
+- Files changed:
+  - rewrite/frontend/components/access-control/RoleManagementPanel.tsx
+- Validation performed:
+  - `get_errors` — zero TS diagnostics
+- Risks or blockers:
+  - `seed_permissions` management command must be run to populate the permissions catalog before the picker shows any items
+- Next immediate task:
+  - Core Setup module backend (AcademicYear, Class, Section, Subject models + API)
+
+## Update 008
+
+- Date: 2026-03-17
+- Module: Admissions and Enquiry — Follow-Up Timeline
+- Tasks completed:
+  - Added `AdmissionFollowUp` model with FK to `AdmissionInquiry`, author FK to `users.User`, `note`, `status_after`, and `created_at`
+  - Added `INQUIRY_STATUS_CHOICES` tuple to constrain both model status fields
+  - Added `AdmissionFollowUpSerializer` (with resolved `author_name`) and `AdmissionFollowUpInlineSerializer` (for nested reads)
+  - Updated `AdmissionInquirySerializer` to embed nested `follow_ups` list (read-only)
+  - Added `AdmissionFollowUpViewSet` (GET + POST + DELETE only); `perform_create` sets `author` from request user; if `status_after` is provided the linked inquiry status is updated atomically
+  - Added school-boundary guard in `AdmissionFollowUpViewSet.perform_create` to prevent cross-tenant writes
+  - Registered `follow-ups` router prefix in `admissions/urls.py`
+  - Rebuilt `AdmissionsPanel.tsx`: split layout (inquiry list left, timeline panel right), status dropdown per row with inline `PATCH` call, timeline panel shows all follow-ups with author/date/note/status badge, add follow-up form with optional status transition
+- Files changed:
+  - rewrite/backend/apps/admissions/models.py
+  - rewrite/backend/apps/admissions/serializers.py
+  - rewrite/backend/apps/admissions/views.py
+  - rewrite/backend/apps/admissions/urls.py
+  - rewrite/frontend/components/admissions/AdmissionsPanel.tsx
+- Validation performed:
+  - `get_errors` — zero TS diagnostics on AdmissionsPanel.tsx
+  - Backend Python files checked — no import or syntax errors detected
+- Risks or blockers:
+  - New `admission_follow_ups` table requires a Django migration before the endpoint is live
+- Next immediate task:
+  - Role permission assignment UI (permission_ids picker inside role create/edit form)
+
+## Update 001
+
+- Date: 2026-03-17
+- Module: Platform Foundation
+- Tasks completed:
+  - Created rewrite workspace with separate frontend/backend/docs folders
+  - Scaffolded Django backend base settings, tenancy middleware, user model, and admissions starter APIs
+  - Scaffolded Next.js frontend professional white-first dashboard shell
+  - Created master module tracker and legacy module source map
+- Files changed:
+  - rewrite/backend/*
+  - rewrite/frontend/*
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+  - rewrite/docs/LEGACY_MODULE_SOURCE_MAP.md
+- Validation performed:
+  - Installed frontend dependencies and type declarations
+  - Checked editor diagnostics for frontend and backend
+- Risks or blockers:
+  - Dependency security warning in frontend package tree; patching required during hardening
+- Next immediate task:
+  - Establish process docs and start Role and Permission module
+
+## Update 002
+
+- Date: 2026-03-17
+- Module: Process Governance
+- Tasks completed:
+  - Added mandatory implementation process document
+  - Added running implementation log document
+- Files changed:
+  - rewrite/docs/IMPLEMENTATION_PROCESS.md
+  - rewrite/docs/IMPLEMENTATION_LOG.md
+- Validation performed:
+  - Documentation consistency check against current tracker
+- Risks or blockers:
+  - None
+- Next immediate task:
+  - Start Role and Permission module backend implementation
+
+## Update 003
+
+- Date: 2026-03-17
+- Module: Role and Permission
+- Tasks completed:
+  - Created access control Django app
+  - Implemented tenant-aware Role, Permission, RolePermission, and UserRole models
+  - Added Role CRUD API and UserRole assignment API
+  - Added read API for permission catalog
+  - Registered access control APIs in v1 routes and admin
+- Files changed:
+  - rewrite/backend/apps/access_control/apps.py
+  - rewrite/backend/apps/access_control/models.py
+  - rewrite/backend/apps/access_control/serializers.py
+  - rewrite/backend/apps/access_control/views.py
+  - rewrite/backend/apps/access_control/urls.py
+  - rewrite/backend/apps/access_control/admin.py
+  - rewrite/backend/config/settings/base.py
+  - rewrite/backend/config/urls.py
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+- Validation performed:
+  - Checked editor diagnostics for backend and frontend
+- Risks or blockers:
+  - Database migrations for new access control models are pending execution
+- Next immediate task:
+  - Add default permission seed set and enforce endpoint-level permission guards
+
+## Update 004
+
+- Date: 2026-03-17
+- Module: Role and Permission
+- Tasks completed:
+  - Added permission seed command for base permission catalog
+  - Added reusable endpoint permission classes and enforced them on access-control APIs
+  - Added user model helper methods for permission code resolution
+  - Added initial frontend role management page and sidebar navigation to implemented modules
+- Files changed:
+  - rewrite/backend/apps/access_control/management/commands/seed_permissions.py
+  - rewrite/backend/apps/access_control/permission_classes.py
+  - rewrite/backend/apps/access_control/views.py
+  - rewrite/backend/apps/users/models.py
+  - rewrite/frontend/components/access-control/RoleManagementPanel.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/frontend/app/(dashboard)/roles/page.tsx
+  - rewrite/frontend/lib/api.ts
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+- Validation performed:
+  - Checked editor diagnostics for rewrite backend and frontend
+- Risks or blockers:
+  - Role create/update UI still requires JWT auth flow wiring to call protected APIs
+  - Database migrations and seed execution are pending runtime setup
+- Next immediate task:
+  - Implement JWT login/logout integration in frontend and connect role create/update actions
+
+## Update 005
+
+- Date: 2026-03-17
+- Module: Security and Access Control
+- Tasks completed:
+  - Added frontend login page connected to backend JWT login endpoint
+  - Added browser token utilities for storing and clearing access token
+  - Updated role management page to use Bearer token while loading roles
+  - Added logout action and sidebar login navigation for developer flow
+- Files changed:
+  - rewrite/frontend/app/login/page.tsx
+  - rewrite/frontend/lib/auth.ts
+  - rewrite/frontend/components/access-control/RoleManagementPanel.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+- Validation performed:
+  - Checked editor diagnostics for rewrite frontend and backend
+- Risks or blockers:
+  - Logout token revocation endpoint is not implemented yet on backend
+  - Role create/update action still placeholder until authenticated POST wiring is added
+- Next immediate task:
+  - Implement authenticated role create/update API calls from frontend and then move to Admissions UI module
+
+## Update 006
+
+- Date: 2026-03-17
+- Module: Security and Access Control
+- Tasks completed:
+  - Added backend logout endpoint with refresh-token revocation support
+  - Enabled SimpleJWT token blacklist app in backend settings
+  - Upgraded frontend auth storage to keep both access and refresh tokens
+  - Wired role create and role update actions to authenticated backend API calls
+  - Wired frontend logout to call backend logout endpoint before clearing local tokens
+- Files changed:
+  - rewrite/backend/apps/users/views.py
+  - rewrite/backend/apps/users/urls.py
+  - rewrite/backend/config/settings/base.py
+  - rewrite/frontend/lib/auth.ts
+  - rewrite/frontend/app/login/page.tsx
+  - rewrite/frontend/components/access-control/RoleManagementPanel.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+- Validation performed:
+  - Checked editor diagnostics for rewrite frontend and backend
+- Risks or blockers:
+  - Token blacklist migrations must be executed in runtime environment
+  - Role permission assignment UI (selecting permission_ids) is pending
+- Next immediate task:
+  - Build Admissions UI module (list/create) and connect it to the admissions API
+
+## Update 007
+
+- Date: 2026-03-17
+- Module: Admissions and Enquiry
+- Tasks completed:
+  - Implemented admissions dashboard page with inquiry list and create form
+  - Wired admissions list API call with bearer token support
+  - Wired admissions create API call with validation and refresh behavior
+  - Added admissions navigation entry in sidebar
+- Files changed:
+  - rewrite/frontend/components/admissions/AdmissionsPanel.tsx
+  - rewrite/frontend/app/(dashboard)/admissions/page.tsx
+  - rewrite/frontend/components/layout/Sidebar.tsx
+  - rewrite/docs/MODULE_TASK_TRACKER.md
+- Validation performed:
+  - Checked editor diagnostics for rewrite frontend and backend
+- Risks or blockers:
+  - Backend create flow depends on authenticated user school context; non-scoped users may fail inquiry creation
+- Next immediate task:
+  - Add admissions follow-up timeline model/API and connect it to admissions UI
