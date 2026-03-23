@@ -1,0 +1,20 @@
+# Frontend build and dependencies
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+
+# Environment files
+frontend/.env
+frontend/.env.*
+backend/.env
+backend/.env.*
+
+# Python cache
+backend/**/__pycache__/
+backend/**/*.pyc
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
