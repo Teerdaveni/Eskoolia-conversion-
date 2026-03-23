@@ -8,6 +8,23 @@ export type SidebarItem = {
 export const sidebarMenu: SidebarItem[] = [
   { id: "dashboard", name: "Dashboard", route: "/dashboard" },
   {
+    id: "administration",
+    name: "Admin Section",
+    children: [
+      { id: "admission-query", name: "Admission Query", route: "/administration/admission-query" },
+      { id: "visitor-book", name: "Visitor Book", route: "/administration/visitor-book" },
+      { id: "complaint", name: "Complaint", route: "/administration/complaint" },
+      { id: "postal-receive", name: "Postal Receive", route: "/administration/postal-receive" },
+      { id: "postal-dispatch", name: "Postal Dispatch", route: "/administration/postal-dispatch" },
+      { id: "phone-call-log", name: "Phone Call Log", route: "/administration/phone-call-log" },
+      { id: "admin-setup", name: "Admin Setup", route: "/administration/admin-setup" },
+      { id: "id-card", name: "ID Card", route: "/administration/id-card" },
+      { id: "certificate", name: "Certificate", route: "/administration/certificate" },
+      { id: "generate-certificate", name: "Generate Certificate", route: "/administration/generate-certificate" },
+      { id: "generate-id-card", name: "Generate ID Card", route: "/administration/generate-id-card" },
+    ],
+  },
+  {
     id: "student-info",
     name: "Student Info",
     children: [
@@ -30,6 +47,7 @@ export const sidebarMenu: SidebarItem[] = [
     id: "academics",
     name: "Academics",
     children: [
+      { id: "core-setup", name: "Core Setup", route: "/academics/core-setup" },
       { id: "lessons", name: "Lesson", route: "/academics/lessons" },
       { id: "topics", name: "Topic", route: "/academics/topics" },
       { id: "lesson-planner", name: "Lesson Planner", route: "/academics/lesson-planner" },

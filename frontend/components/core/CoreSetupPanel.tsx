@@ -272,8 +272,12 @@ function SectionsSection() {
 }
 
 // ─── Main Panel ───────────────────────────────────────────────────────────────
-export function CoreSetupPanel() {
-  const [tab, setTab] = useState<Tab>("years");
+type CoreSetupPanelProps = {
+  initialTab?: Tab;
+};
+
+export function CoreSetupPanel({ initialTab = "years" }: CoreSetupPanelProps) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const tabs: { key: Tab; label: string }[] = [
     { key: "years", label: "Academic Years" },
     { key: "classes", label: "Classes" },

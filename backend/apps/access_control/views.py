@@ -35,6 +35,11 @@ class UserRoleViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         queryset = UserRole.objects.select_related("user", "role")
+
+        role_id = self.request.query_params.get("role")
+        if role_id:
+            queryset = queryset.filter(role_id=role_id)
+
         if user.is_superuser:
             return queryset
         if user.school_id:

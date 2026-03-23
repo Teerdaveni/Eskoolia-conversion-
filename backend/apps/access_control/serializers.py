@@ -36,7 +36,17 @@ class RoleSerializer(serializers.ModelSerializer):
 
 
 class UserRoleSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField(read_only=True)
+    role_name = serializers.CharField(source="role.name", read_only=True)
+
     class Meta:
         model = UserRole
-        fields = ["id", "user", "role", "created_at"]
+        fields = ["id", "user", "role", "user_name", "role_name", "created_at"]
         read_only_fields = ["id", "created_at"]
+
+    def get_user_name(self, obj):
+        user = obj.user
+        if not user:
+            return None
+        full_name = f"{user.first_name} {user.last_name}".strip()
+        return full_name or user.username

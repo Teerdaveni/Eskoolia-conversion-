@@ -1,0 +1,358 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { apiRequestWithRefresh } from "@/lib/api-auth";
+
+type ApiList<T> = T[] | { results?: T[] };
+
+type VisitorRow = {
+  id: number;
+  purpose: string;
+  name: string;
+  phone?: string;
+  visitor_id: string;
+  no_of_person: number;
+  date: string;
+  in_time: string;
+  out_time: string;
+  file_url?: string;
+  created_by_name?: string | null;
+};
+
+function listData<T>(value: ApiList<T>): T[] {
+  return Array.isArray(value) ? value : value.results || [];
+}
+
+async function apiGet<T>(path: string): Promise<T> {
+  return apiRequestWithRefresh<T>(path, { headers: { "Content-Type": "application/json" } });
+}
+
+async function apiPost<T>(path: string, payload: unknown): Promise<T> {
+  return apiRequestWithRefresh<T>(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function apiForm<T>(path: string, method: "POST" | "PATCH", formData: FormData): Promise<T> {
+  return apiRequestWithRefresh<T>(path, {
+    method,
+    body: formData,
+  });
+}
+
+async function apiPatch<T>(path: string, payload: unknown): Promise<T> {
+  return apiRequestWithRefresh<T>(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function apiDelete(path: string): Promise<void> {
+  await apiRequestWithRefresh<void>(path, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function boxStyle() {
+  return {
+    background: "var(--surface)",
+    border: "1px solid var(--line)",
+    borderRadius: "var(--radius)",
+    padding: 16,
+  } as const;
+}
+
+function fieldStyle() {
+  return {
+    width: "100%",
+    height: 36,
+    border: "1px solid var(--line)",
+    borderRadius: 8,
+    padding: "0 10px",
+  } as const;
+}
+
+function buttonStyle(color = "var(--primary)") {
+  return {
+    height: 36,
+    border: `1px solid ${color}`,
+    background: color,
+    color: "#fff",
+    borderRadius: 8,
+    padding: "0 12px",
+    cursor: "pointer",
+    fontSize: 13,
+  } as const;
+}
+
+export function VisitorBookPanel() {
+  const [items, setItems] = useState<VisitorRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const [purpose, setPurpose] = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [visitorId, setVisitorId] = useState("");
+  const [noOfPerson, setNoOfPerson] = useState("1");
+  const [date, setDate] = useState("");
+  const [inTime, setInTime] = useState("");
+  const [outTime, setOutTime] = useState("");
+  const [fileUrl, setFileUrl] = useState("");
+  const [fileUpload, setFileUpload] = useState<File | null>(null);
+  const [search, setSearch] = useState("");
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const data = await apiGet<ApiList<VisitorRow>>("/api/v1/admissions/visitors/");
+      setItems(listData(data));
+    } catch {
+      setError("Unable to load visitor book records.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const now = new Date();
+    setDate(now.toISOString().slice(0, 10));
+    void load();
+  }, []);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setPurpose("");
+    setName("");
+    setPhone("");
+    setVisitorId("");
+    setNoOfPerson("1");
+    setInTime("");
+    setOutTime("");
+    setFileUrl("");
+    setFileUpload(null);
+  };
+
+  const editRow = (row: VisitorRow) => {
+    setEditingId(row.id);
+    setPurpose(row.purpose || "");
+    setName(row.name || "");
+    setPhone(row.phone || "");
+    setVisitorId(row.visitor_id || "");
+    setNoOfPerson(String(row.no_of_person || 1));
+    setDate(row.date || "");
+    setInTime(row.in_time || "");
+    setOutTime(row.out_time || "");
+    setFileUrl(row.file_url || "");
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+
+    if (!purpose.trim() || !name.trim() || !visitorId.trim() || !date || !inTime.trim() || !outTime.trim()) {
+      setError("Purpose, name, ID, date, in time and out time are required.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("purpose", purpose.trim());
+    formData.append("name", name.trim());
+    formData.append("phone", phone.trim());
+    formData.append("visitor_id", visitorId.trim());
+    formData.append("no_of_person", String(Number(noOfPerson) || 1));
+    formData.append("date", date);
+    formData.append("in_time", inTime.trim());
+    formData.append("out_time", outTime.trim());
+    if (fileUpload) {
+      formData.append("file_upload", fileUpload);
+    }
+
+    try {
+      setSaving(true);
+      setError("");
+      setSuccess("");
+
+      if (editingId) {
+        await apiForm(`/api/v1/admissions/visitors/${editingId}/`, "PATCH", formData);
+        setSuccess("Visitor updated successfully.");
+      } else {
+        await apiForm("/api/v1/admissions/visitors/", "POST", formData);
+        setSuccess("Visitor added successfully.");
+      }
+
+      resetForm();
+      await load();
+    } catch {
+      setError(editingId ? "Unable to update visitor." : "Unable to add visitor.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (id: number) => {
+    const ok = window.confirm("Are you sure to delete this visitor record?");
+    if (!ok) {
+      return;
+    }
+
+    try {
+      setBusyId(id);
+      setError("");
+      setSuccess("");
+      await apiDelete(`/api/v1/admissions/visitors/${id}/`);
+      setItems((prev) => prev.filter((row) => row.id !== id));
+      setSuccess("Visitor record deleted.");
+    } catch {
+      setError("Unable to delete visitor record.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) {
+      return items;
+    }
+    return items.filter((row) =>
+      [row.name, row.purpose, row.phone || "", row.visitor_id]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [items, search]);
+
+  return (
+    <div className="legacy-panel">
+      <section className="sms-breadcrumb mb-20">
+        <div className="container-fluid">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h1 style={{ margin: 0, fontSize: 24 }}>Visitor Book</h1>
+            <div style={{ display: "flex", gap: 8, color: "var(--text-muted)", fontSize: 13 }}>
+              <span>Dashboard</span>
+              <span>/</span>
+              <span>Admin Section</span>
+              <span>/</span>
+              <span>Visitor Book</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="admin-visitor-area up_admin_visitor">
+        <div className="container-fluid p-0">
+          <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 12 }}>
+            <div className="white-box" style={boxStyle()}>
+              <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Visitor" : "Add Visitor"}</h3>
+              <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
+                <input value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Purpose *" style={fieldStyle()} />
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name *" style={fieldStyle()} />
+                <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" style={fieldStyle()} />
+                <input value={visitorId} onChange={(e) => setVisitorId(e.target.value)} placeholder="ID *" style={fieldStyle()} />
+                <input type="number" min={1} value={noOfPerson} onChange={(e) => setNoOfPerson(e.target.value)} placeholder="No of Person *" style={fieldStyle()} />
+                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
+                <input value={inTime} onChange={(e) => setInTime(e.target.value)} placeholder="In Time *" style={fieldStyle()} />
+                <input value={outTime} onChange={(e) => setOutTime(e.target.value)} placeholder="Out Time *" style={fieldStyle()} />
+                <input type="file" onChange={(e) => setFileUpload(e.target.files?.[0] || null)} style={{ ...fieldStyle(), padding: 6 }} />
+                {editingId && fileUrl ? (
+                  <a href={fileUrl} target="_blank" rel="noreferrer" style={{ color: "var(--primary)", fontSize: 12 }}>
+                    View existing file
+                  </a>
+                ) : null}
+
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <button type="submit" disabled={saving} style={buttonStyle()}>
+                    {saving ? "Saving..." : editingId ? "Update" : "Save"}
+                  </button>
+                  {editingId ? (
+                    <button type="button" onClick={resetForm} style={buttonStyle("#6b7280")}>
+                      Cancel
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+            </div>
+
+            <div className="white-box" style={boxStyle()}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
+                <h3 style={{ margin: 0 }}>Visitor List</h3>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Quick search"
+                  style={{ ...fieldStyle(), maxWidth: 240 }}
+                />
+              </div>
+
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>SL</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Name</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>No Of Person</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Phone</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Purpose</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Date</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>In Time</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Out Time</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Created By</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!loading && filtered.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} style={{ padding: 12, color: "var(--text-muted)" }}>
+                          No visitor records found.
+                        </td>
+                      </tr>
+                    ) : (
+                      filtered.map((row, index) => (
+                        <tr key={row.id}>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{index + 1}</td>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.no_of_person}</td>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.phone || "-"}</td>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.purpose}</td>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.date}</td>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.in_time}</td>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.out_time}</td>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.created_by_name || "-"}</td>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <button type="button" onClick={() => editRow(row)} style={buttonStyle("#0ea5e9")}>
+                                Edit
+                              </button>
+                              <button type="button" disabled={busyId === row.id} onClick={() => void remove(row.id)} style={buttonStyle("#dc2626")}>
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {loading && <p style={{ marginTop: 10, color: "var(--text-muted)" }}>Loading visitor records...</p>}
+              {error && <p style={{ marginTop: 10, color: "var(--warning)" }}>{error}</p>}
+              {success && <p style={{ marginTop: 10, color: "#0f766e" }}>{success}</p>}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
