@@ -1,9 +1,17 @@
 from rest_framework.routers import DefaultRouter
-from .views import PermissionViewSet, RoleViewSet, UserRoleViewSet
+from .views import (
+	DueFeesLoginPermissionViewSet,
+	LoginAccessControlViewSet,
+	PermissionViewSet,
+	RoleViewSet,
+	UserRoleViewSet,
+)
 
 router = DefaultRouter()
 router.register("permissions", PermissionViewSet, basename="permission")
 router.register("roles", RoleViewSet, basename="role")
 router.register("user-roles", UserRoleViewSet, basename="user-role")
+router.register("login-access-control", LoginAccessControlViewSet, basename="login-access-control")
+router.register("due-fees-login-permission", DueFeesLoginPermissionViewSet, basename="due-fees-login-permission")
 
 urlpatterns = router.urls

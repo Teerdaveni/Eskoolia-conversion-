@@ -1,8 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { API_BASE_URL } from "@/lib/api";
-import { clearAuthTokens, getAccessToken, getRefreshToken } from "@/lib/auth";
+import Link from "next/link";
+import { apiRequestWithRefresh } from "@/lib/api-auth";
 
 type Permission = {
   id: number;
@@ -41,25 +41,13 @@ export function RoleManagementPanel() {
     setLoading(true);
     setError("");
     try {
-      const token = getAccessToken();
-      const response = await fetch(`${API_BASE_URL}/api/v1/access-control/roles/`, {
-        cache: "no-store",
-        headers: token
-          ? {
-              Authorization: `Bearer ${token}`,
-            }
-          : undefined,
-      });
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
-      const data = (await response.json()) as RoleApiResult | RoleItem[];
+      const data = await apiRequestWithRefresh<RoleApiResult | RoleItem[]>("/api/v1/access-control/roles/");
       if (Array.isArray(data)) {
         setRoles(data);
       } else {
         setRoles(data.results || []);
       }
-    } catch (e) {
+    } catch {
       setError("Unable to load roles yet. Authenticate API and run migrations to view data.");
     } finally {
       setLoading(false);
@@ -67,15 +55,8 @@ export function RoleManagementPanel() {
   };
 
   const loadPermissions = async () => {
-    const token = getAccessToken();
-    if (!token) return;
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/access-control/permissions/`, {
-        cache: "no-store",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) return;
-      const data = (await response.json()) as PermissionApiResult | Permission[];
+      const data = await apiRequestWithRefresh<PermissionApiResult | Permission[]>("/api/v1/access-control/permissions/");
       setAllPermissions(Array.isArray(data) ? data : data.results || []);
     } catch {
       // permissions panel silently skips if not yet seeded
@@ -93,38 +74,40 @@ export function RoleManagementPanel() {
       return;
     }
 
-    const token = getAccessToken();
-    if (!token) {
-      setError("Login is required before creating or updating roles.");
-      return;
-    }
-
     const isUpdate = editingRoleId !== null;
 
     try {
       setError("");
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/access-control/roles/${isUpdate ? `${editingRoleId}/` : ""}`,
+      await apiRequestWithRefresh(
+        `/api/v1/access-control/roles/${isUpdate ? `${editingRoleId}/` : ""}`,
         {
           method: isUpdate ? "PUT" : "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ name: roleName.trim(), permission_ids: Array.from(selectedPermIds) }),
-        }
+        },
       );
-
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
-      }
 
       setRoleName("");
       setEditingRoleId(null);
       setSelectedPermIds(new Set());
       await loadRoles();
-    } catch (e) {
+    } catch {
       setError("Unable to save role. Ensure your user has role.manage permission.");
+    }
+  };
+
+  const deleteRole = async (id: number) => {
+    try {
+      setError("");
+      await apiRequestWithRefresh(`/api/v1/access-control/roles/${id}/`, { method: "DELETE" });
+      if (editingRoleId === id) {
+        cancelEdit();
+      }
+      await loadRoles();
+    } catch {
+      setError("Unable to delete role.");
     }
   };
 
@@ -149,51 +132,35 @@ export function RoleManagementPanel() {
     });
   };
 
-  const logout = async () => {
-    const accessToken = getAccessToken();
-    const refreshToken = getRefreshToken();
-
-    try {
-      if (accessToken && refreshToken) {
-        await fetch(`${API_BASE_URL}/api/v1/auth/logout/`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ refresh: refreshToken }),
-        });
-      }
-    } finally {
-      clearAuthTokens();
-      setRoles([]);
-      setError("Logged out. Open /login to sign in again.");
-    }
-  };
-
   return (
     <section>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 24 }}>Role Management</h1>
+          <h1 style={{ margin: 0, fontSize: 24 }}>Role</h1>
           <p style={{ marginTop: 8, color: "var(--text-muted)" }}>
-            Manage role catalog and permissions per school tenant.
+            Manage role catalog. Use dedicated screens for permission assignment and login controls.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={logout}
-          style={{
-            border: "1px solid var(--line)",
-            background: "var(--surface)",
-            color: "var(--text)",
-            borderRadius: 8,
-            padding: "8px 12px",
-            cursor: "pointer",
-          }}
-        >
-          Logout
-        </button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <Link
+            href="/roles/assign-permission"
+            style={{ border: "1px solid var(--line)", background: "var(--surface)", color: "var(--text)", borderRadius: 8, padding: "8px 12px", textDecoration: "none" }}
+          >
+            Assign Permission
+          </Link>
+          <Link
+            href="/roles/login-permission"
+            style={{ border: "1px solid var(--line)", background: "var(--surface)", color: "var(--text)", borderRadius: 8, padding: "8px 12px", textDecoration: "none" }}
+          >
+            Login Permission
+          </Link>
+          <Link
+            href="/roles/due-fees-login-permission"
+            style={{ border: "1px solid var(--line)", background: "var(--surface)", color: "var(--text)", borderRadius: 8, padding: "8px 12px", textDecoration: "none" }}
+          >
+            Due Fees Login Permission
+          </Link>
+        </div>
       </div>
 
       <div
@@ -251,7 +218,7 @@ export function RoleManagementPanel() {
             )}
           </div>
 
-          {/* Permissions picker — grouped by module */}
+          {/* Quick permission picker while creating/updating role */}
           {allPermissions.length > 0 && (() => {
             const byModule: Record<string, Permission[]> = {};
             for (const p of allPermissions) {
@@ -260,7 +227,7 @@ export function RoleManagementPanel() {
             return (
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "var(--text-muted)" }}>
-                  Assign Permissions
+                  Permissions
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
                   {Object.entries(byModule).map(([mod, perms]) => (
@@ -327,20 +294,38 @@ export function RoleManagementPanel() {
                     {new Date(role.created_at).toLocaleDateString()}
                   </td>
                   <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
-                    <button
-                      type="button"
-                      onClick={() => startEdit(role)}
-                      style={{
-                        border: "1px solid var(--line)",
-                        background: "var(--surface)",
-                        color: "var(--text)",
-                        borderRadius: 8,
-                        padding: "6px 10px",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Edit
-                    </button>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => startEdit(role)}
+                        style={{
+                          border: "1px solid var(--line)",
+                          background: "var(--surface)",
+                          color: "var(--text)",
+                          borderRadius: 8,
+                          padding: "6px 10px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Edit
+                      </button>
+                      {!role.is_system && (
+                        <button
+                          type="button"
+                          onClick={() => deleteRole(role.id)}
+                          style={{
+                            border: "1px solid var(--danger)",
+                            background: "transparent",
+                            color: "var(--danger)",
+                            borderRadius: 8,
+                            padding: "6px 10px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

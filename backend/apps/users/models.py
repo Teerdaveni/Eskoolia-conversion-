@@ -12,6 +12,8 @@ class User(AbstractUser):
     )
     phone = models.CharField(max_length=32, blank=True)
     is_school_admin = models.BooleanField(default=False)
+    access_status = models.BooleanField(default=True)
+    due_fees_login_blocked = models.BooleanField(default=False)
 
     class Meta:
         db_table = "users"

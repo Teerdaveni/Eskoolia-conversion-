@@ -8,6 +8,20 @@ export type SidebarItem = {
 export const sidebarMenu: SidebarItem[] = [
   { id: "dashboard", name: "Dashboard", route: "/dashboard" },
   {
+    id: "role-permission",
+    name: "Role & Permission",
+    children: [
+      { id: "roles", name: "Role", route: "/roles" },
+      { id: "assign-permission", name: "Assign Permission", route: "/roles/assign-permission" },
+      { id: "login-permission", name: "Login Permission", route: "/roles/login-permission" },
+      {
+        id: "due-fees-login-permission",
+        name: "Due Fees Login Permission",
+        route: "/roles/due-fees-login-permission",
+      },
+    ],
+  },
+  {
     id: "administration",
     name: "Admin Section",
     children: [
@@ -111,7 +125,9 @@ export const sidebarMenu: SidebarItem[] = [
       { id: "hr-designations", name: "HR Designations", route: "/hr/designations" },
       { id: "hr-staff", name: "HR Staff", route: "/hr/staff" },
       { id: "hr-leave-types", name: "HR Leave Types", route: "/hr/leave-types" },
+      { id: "hr-leave-defines", name: "HR Leave Define", route: "/hr/leave-defines" },
       { id: "hr-leave-requests", name: "HR Leave Requests", route: "/hr/leave-requests" },
+      { id: "hr-staff-attendance", name: "HR Staff Attendance", route: "/hr/staff-attendance" },
       { id: "hr-payroll", name: "HR Payroll", route: "/hr/payroll" },
     ],
   },
