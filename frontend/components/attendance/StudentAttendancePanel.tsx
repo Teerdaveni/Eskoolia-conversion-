@@ -108,16 +108,38 @@ export default function StudentAttendancePanel() {
     const load = async () => {
       try {
         setError("");
-        const [yearData, classData, sectionData] = await Promise.all([
+        const [yearData, classData, sectionData] = await Promise.allSettled([
           apiGet<ApiList<AcademicYear>>("/api/v1/core/academic-years/"),
           apiGet<ApiList<SchoolClass>>("/api/v1/core/classes/"),
           apiGet<ApiList<Section>>("/api/v1/core/sections/"),
         ]);
-        setYears(listData(yearData));
-        setClasses(listData(classData));
-        setSections(listData(sectionData));
-      } catch {
-        setError("Unable to load attendance criteria.");
+
+        const loadedYears = yearData.status === "fulfilled" ? listData(yearData.value) : [];
+        const loadedClasses = classData.status === "fulfilled" ? listData(classData.value) : [];
+        let loadedSections: Section[] = sectionData.status === "fulfilled" ? listData(sectionData.value) : [];
+
+        // Fallback: some environments return sections nested under classes only.
+        if (!loadedSections.length) {
+          loadedSections = loadedClasses.flatMap((schoolClass) => {
+            const classWithSections = schoolClass as SchoolClass & { sections?: Array<{ id: number; name: string }> };
+            return (classWithSections.sections || []).map((section) => ({
+              id: section.id,
+              name: section.name,
+              school_class: schoolClass.id,
+            }));
+          });
+        }
+
+        setYears(loadedYears);
+        setClasses(loadedClasses);
+        setSections(loadedSections);
+
+        if (!loadedClasses.length) {
+          setError("Unable to load attendance criteria.");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        setError(message && message !== "401" ? message : "Unable to load attendance criteria.");
       }
     };
     void load();
@@ -142,7 +164,9 @@ export default function StudentAttendancePanel() {
       }>(
         "/api/v1/attendance/student-attendance/student-search/",
         {
+          class: Number(classId),
           class_id: Number(classId),
+          section: Number(sectionId),
           section_id: Number(sectionId),
           attendance_date: attendanceDate,
         }
@@ -159,8 +183,9 @@ export default function StudentAttendancePanel() {
       });
       setAttendance(init);
       setLoaded(true);
-    } catch {
-      setError("Failed to load students.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setError(message && message !== "401" ? message : "Failed to load students.");
     }
   };
 
@@ -191,8 +216,9 @@ export default function StudentAttendancePanel() {
         mark_holiday: markHoliday,
       });
       await searchStudents();
-    } catch {
-      setError("Unable to save attendance.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setError(message && message !== "401" ? message : "Unable to save attendance.");
     } finally {
       setSaving(false);
     }
@@ -209,8 +235,9 @@ export default function StudentAttendancePanel() {
         purpose,
       });
       await searchStudents();
-    } catch {
-      setError("Unable to update holiday status.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setError(message && message !== "401" ? message : "Unable to update holiday status.");
     }
   };
 
@@ -225,8 +252,9 @@ export default function StudentAttendancePanel() {
       );
       setReport(data);
       setReportLoaded(true);
-    } catch {
-      setError("Failed to load attendance report.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setError(message && message !== "401" ? message : "Failed to load attendance report.");
     }
   };
 

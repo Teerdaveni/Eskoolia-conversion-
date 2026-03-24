@@ -12,9 +12,45 @@ INQUIRY_STATUS_CHOICES = [
 class AdmissionInquiry(models.Model):
     school = models.ForeignKey("tenancy.School", on_delete=models.CASCADE, related_name="admission_inquiries")
     full_name = models.CharField(max_length=255)
-    phone = models.CharField(max_length=32)
+    phone = models.CharField(max_length=32, blank=True)
     email = models.EmailField(blank=True)
-    class_name = models.CharField(max_length=120)
+    address = models.TextField(blank=True)
+    description = models.TextField(blank=True)
+    query_date = models.DateField(null=True, blank=True)
+    follow_up_date = models.DateField(null=True, blank=True)
+    next_follow_up_date = models.DateField(null=True, blank=True)
+    assigned = models.CharField(max_length=255, blank=True)
+    reference = models.ForeignKey(
+        "admissions.AdminSetupEntry",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admission_reference_inquiries",
+    )
+    source = models.ForeignKey(
+        "admissions.AdminSetupEntry",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admission_source_inquiries",
+    )
+    school_class = models.ForeignKey(
+        "core.Class",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admission_inquiries",
+    )
+    no_of_child = models.PositiveIntegerField(default=1)
+    active_status = models.PositiveSmallIntegerField(default=1)
+    created_by = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_admission_inquiries",
+    )
+    class_name = models.CharField(max_length=120, blank=True)
     note = models.TextField(blank=True)
     status = models.CharField(max_length=32, choices=INQUIRY_STATUS_CHOICES, default="new")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -34,7 +70,8 @@ class AdmissionFollowUp(models.Model):
         blank=True,
         related_name="admission_follow_ups",
     )
-    note = models.TextField()
+    response = models.TextField(blank=True)
+    note = models.TextField(blank=True)
     status_after = models.CharField(
         max_length=32,
         choices=INQUIRY_STATUS_CHOICES,

@@ -110,9 +110,11 @@ function toUiRecord(rows: MultiRecordApi[]): MultiRecord[] {
   }));
 }
 
-export function StudentMultiClassPanel() {
+export function StudentMultiClassPanel({ selectedStudentId }: { selectedStudentId?: number } = {}) {
   const searchParams = useSearchParams();
   const studentFromQuery = searchParams.get("student") || "";
+  const forcedStudentId = selectedStudentId ? String(selectedStudentId) : "";
+  const activeStudentId = forcedStudentId || studentFromQuery;
 
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -153,6 +155,17 @@ export function StudentMultiClassPanel() {
     void loadBaseData();
   }, []);
 
+  useEffect(() => {
+    if (!activeStudentId || loading) {
+      return;
+    }
+    const studentId = Number(activeStudentId);
+    if (!studentId || Number.isNaN(studentId)) {
+      return;
+    }
+    void ensureStudentRecords(studentId);
+  }, [activeStudentId, loading]);
+
   const filteredSections = useMemo(() => {
     if (!filterClassId) {
       return sections;
@@ -163,7 +176,7 @@ export function StudentMultiClassPanel() {
   const filteredStudents = useMemo(() => {
     const byName = searchName.trim().toLowerCase();
     const byRoll = searchRoll.trim().toLowerCase();
-    const byStudentId = studentFromQuery.trim();
+    const byStudentId = activeStudentId.trim();
 
     return students.filter((row) => {
       if (!row.is_active) {
@@ -190,7 +203,7 @@ export function StudentMultiClassPanel() {
 
       return true;
     });
-  }, [students, searchName, searchRoll, filterClassId, filterSectionId, studentFromQuery]);
+  }, [students, searchName, searchRoll, filterClassId, filterSectionId, activeStudentId]);
 
   const classNameById = useMemo(() => {
     return new Map(classes.map((item) => [item.id, item.name]));

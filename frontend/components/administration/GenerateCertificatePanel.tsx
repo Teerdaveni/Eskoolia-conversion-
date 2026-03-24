@@ -133,19 +133,17 @@ async function apiGet<T>(path: string): Promise<T> {
   return apiRequestWithRefresh<T>(path, { headers: { "Content-Type": "application/json" } });
 }
 
-async function fetchAllPages<T>(path: string, maxPages = 8): Promise<T[]> {
-  let page = 1;
-  let rows: T[] = [];
-  while (page <= maxPages) {
-    const joiner = path.includes("?") ? "&" : "?";
-    const data = await apiGet<ApiList<T>>(`${path}${joiner}page=${page}&page_size=100`);
-    if (Array.isArray(data)) return data;
-    rows = rows.concat(data.results || []);
-    if (!data.next) break;
-    page += 1;
-  }
-  return rows;
-}
+type GenerateSetupResponse = {
+  roles: RoleOption[];
+  classes: ClassRow[];
+  sections: SectionRow[];
+  templates: CertificateTemplate[];
+};
+
+type RecipientsResponse = {
+  is_student_role: boolean;
+  recipients: Recipient[];
+};
 
 export function GenerateCertificatePanel() {
   const [roles, setRoles] = useState<RoleOption[]>([]);
@@ -199,16 +197,11 @@ export function GenerateCertificatePanel() {
       try {
         setLoading(true);
         setError("");
-        const [roleData, templateData, classData, sectionData] = await Promise.all([
-          apiGet<ApiList<RoleOption>>("/api/v1/access-control/roles/?page_size=100"),
-          apiGet<ApiList<CertificateTemplate>>("/api/v1/admissions/certificate-templates/?page_size=100"),
-          apiGet<ApiList<ClassRow>>("/api/v1/core/classes/?page_size=100"),
-          apiGet<ApiList<SectionRow>>("/api/v1/core/sections/?page_size=200"),
-        ]);
-        setRoles(listData(roleData));
-        setTemplates(listData(templateData));
-        setClasses(listData(classData));
-        setSections(listData(sectionData));
+        const data = await apiGet<GenerateSetupResponse>("/api/v1/admissions/certificate-templates/generate-setup/");
+        setRoles(data.roles || []);
+        setTemplates(data.templates || []);
+        setClasses(data.classes || []);
+        setSections(data.sections || []);
       } catch {
         setError("Unable to load generate certificate data.");
       } finally {
@@ -238,37 +231,21 @@ export function GenerateCertificatePanel() {
       setSuccess("");
       setSelectedIds([]);
 
-      if (isStudentRole) {
-        const allStudents = await fetchAllPages<StudentRow>("/api/v1/students/students/");
-        const rows = allStudents
-          .filter((student) => {
-            if (classId && String(student.current_class || "") !== classId) return false;
-            if (sectionId && String(student.current_section || "") !== sectionId) return false;
-            return true;
-          })
-          .map((student) => {
-            const label = `${toText(student.first_name)} ${toText(student.last_name)}`.trim() || `Student #${student.id}`;
-            return {
-              id: student.id,
-              label,
-              admission_no: student.admission_no || "",
-              roll_no: student.roll_no || "",
-              className: classNameById.get(student.current_class || -1) || "",
-              sectionName: sectionNameById.get(student.current_section || -1) || "",
-              gender: student.gender || "",
-              dateOfBirth: student.date_of_birth || "",
-            } satisfies Recipient;
-          });
-        setRecipients(rows);
-        if (!rows.length) setSuccess("No student recipients found.");
-      } else {
-        const roleUsers = await fetchAllPages<UserRoleRow>(`/api/v1/access-control/user-roles/?role=${encodeURIComponent(roleId)}`);
-        const rows = roleUsers.map((row) => ({
-          id: row.user,
-          label: row.user_name || `User #${row.user}`,
-        }));
-        setRecipients(rows);
-        if (!rows.length) setSuccess("No recipients found for this role.");
+      const params = new URLSearchParams();
+      params.set("role", roleId);
+      if (classId) params.set("class", classId);
+      if (sectionId) params.set("section", sectionId);
+
+      const data = await apiGet<RecipientsResponse>(`/api/v1/admissions/certificate-templates/recipients/?${params.toString()}`);
+      const rows = (data.recipients || []).map((row) => ({
+        ...row,
+        className: row.className || classNameById.get(Number((row as Recipient & { current_class?: number }).current_class || -1)) || row.className,
+        sectionName: row.sectionName || sectionNameById.get(Number((row as Recipient & { current_section?: number }).current_section || -1)) || row.sectionName,
+      }));
+
+      setRecipients(rows);
+      if (!rows.length) {
+        setSuccess(data.is_student_role ? "No student recipients found." : "No recipients found for this role.");
       }
     } catch {
       setError("Unable to load recipients.");

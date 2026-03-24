@@ -1,5 +1,4 @@
 from rest_framework import serializers
-import json
 from .models import (
     AdmissionFollowUp,
     AdmissionInquiry,
@@ -19,7 +18,7 @@ class AdmissionFollowUpSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AdmissionFollowUp
-        fields = ["id", "inquiry", "author", "author_name", "note", "status_after", "created_at"]
+        fields = ["id", "inquiry", "author", "author_name", "response", "note", "status_after", "created_at"]
         read_only_fields = ["id", "author", "author_name", "created_at"]
 
     def get_author_name(self, obj):
@@ -33,7 +32,7 @@ class AdmissionFollowUpInlineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AdmissionFollowUp
-        fields = ["id", "author_name", "note", "status_after", "created_at"]
+        fields = ["id", "author_name", "response", "note", "status_after", "created_at"]
 
     def get_author_name(self, obj):
         if obj.author:
@@ -43,6 +42,10 @@ class AdmissionFollowUpInlineSerializer(serializers.ModelSerializer):
 
 class AdmissionInquirySerializer(serializers.ModelSerializer):
     follow_ups = AdmissionFollowUpInlineSerializer(many=True, read_only=True)
+    source_name = serializers.CharField(source="source.name", read_only=True)
+    reference_name = serializers.CharField(source="reference.name", read_only=True)
+    class_name_resolved = serializers.CharField(source="school_class.name", read_only=True)
+    created_by_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = AdmissionInquiry
@@ -52,6 +55,22 @@ class AdmissionInquirySerializer(serializers.ModelSerializer):
             "full_name",
             "phone",
             "email",
+            "address",
+            "description",
+            "query_date",
+            "follow_up_date",
+            "next_follow_up_date",
+            "assigned",
+            "reference",
+            "reference_name",
+            "source",
+            "source_name",
+            "school_class",
+            "class_name_resolved",
+            "no_of_child",
+            "active_status",
+            "created_by",
+            "created_by_name",
             "class_name",
             "note",
             "status",
@@ -59,7 +78,12 @@ class AdmissionInquirySerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "follow_ups", "created_at", "updated_at"]
+        read_only_fields = ["id", "school", "created_by", "created_by_name", "follow_ups", "created_at", "updated_at"]
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.get_full_name() or obj.created_by.username
+        return None
 
 
 class VisitorBookEntrySerializer(serializers.ModelSerializer):

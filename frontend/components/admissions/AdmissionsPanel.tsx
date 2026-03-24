@@ -1,315 +1,391 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { API_BASE_URL } from "@/lib/api";
-import { getAccessToken } from "@/lib/auth";
+import { useRouter } from "next/navigation";
+import { apiRequestWithRefresh } from "@/lib/api-auth";
 
-const STATUSES = ["new", "contacted", "visited", "enrolled", "declined"] as const;
-type InquiryStatus = (typeof STATUSES)[number];
-
-const STATUS_COLORS: Record<InquiryStatus, string> = {
-  new: "#6366f1",
-  contacted: "#f59e0b",
-  visited: "#3b82f6",
-  enrolled: "#22c55e",
-  declined: "#ef4444",
-};
-
-type FollowUp = {
-  id: number;
-  author_name: string | null;
-  note: string;
-  status_after: string;
-  created_at: string;
-};
+type ApiList<T> = T[] | { results?: T[] };
 
 type Inquiry = {
   id: number;
   full_name: string;
   phone: string;
   email: string;
-  class_name: string;
+  address: string;
+  description: string;
+  query_date: string | null;
+  follow_up_date: string | null;
+  next_follow_up_date: string | null;
+  assigned: string;
+  reference: number | null;
+  reference_name?: string;
+  source: number | null;
+  source_name?: string;
+  school_class: number | null;
+  class_name_resolved?: string;
+  no_of_child: number;
+  active_status: number;
   status: string;
-  created_at: string;
-  follow_ups: FollowUp[];
+  note: string;
 };
 
-type InquiryListResponse = {
-  results?: Inquiry[];
+type AdminSetup = {
+  id: number;
+  type: "1" | "2" | "3" | "4";
+  name: string;
 };
+
+type SchoolClass = {
+  id: number;
+  name: string;
+};
+
+type InquiryForm = {
+  full_name: string;
+  phone: string;
+  email: string;
+  address: string;
+  description: string;
+  query_date: string;
+  next_follow_up_date: string;
+  assigned: string;
+  reference: string;
+  source: string;
+  school_class: string;
+  no_of_child: string;
+  active_status: "1" | "2";
+  status: string;
+  note: string;
+};
+
+const initialForm = (): InquiryForm => ({
+  full_name: "",
+  phone: "",
+  email: "",
+  address: "",
+  description: "",
+  query_date: new Date().toISOString().slice(0, 10),
+  next_follow_up_date: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+  assigned: "",
+  reference: "",
+  source: "",
+  school_class: "",
+  no_of_child: "1",
+  active_status: "1",
+  status: "new",
+  note: "",
+});
+
+function listData<T>(value: ApiList<T>): T[] {
+  return Array.isArray(value) ? value : value.results || [];
+}
+
+function boxStyle() {
+  return {
+    background: "var(--surface)",
+    border: "1px solid var(--line)",
+    borderRadius: "var(--radius)",
+    padding: 16,
+  } as const;
+}
+
+function fieldStyle() {
+  return {
+    width: "100%",
+    height: 36,
+    border: "1px solid var(--line)",
+    borderRadius: 8,
+    padding: "0 10px",
+  } as const;
+}
+
+function buttonStyle(color = "var(--primary)") {
+  return {
+    height: 36,
+    border: `1px solid ${color}`,
+    background: color,
+    color: "#fff",
+    borderRadius: 8,
+    padding: "0 12px",
+    cursor: "pointer",
+    fontSize: 13,
+  } as const;
+}
 
 export function AdmissionsPanel() {
+  const router = useRouter();
   const [items, setItems] = useState<Inquiry[]>([]);
+  const [sources, setSources] = useState<AdminSetup[]>([]);
+  const [references, setReferences] = useState<AdminSetup[]>([]);
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState("");
 
-  // Create inquiry form
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [className, setClassName] = useState("");
-  const [note, setNote] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<InquiryForm>(initialForm());
 
-  // Expanded inquiry for timeline
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
 
-  // Follow-up form
-  const [followNote, setFollowNote] = useState("");
-  const [followStatus, setFollowStatus] = useState<InquiryStatus | "">("");
-  const [addingFollowUp, setAddingFollowUp] = useState(false);
+  const loadOptions = async () => {
+    const [setupData, classData] = await Promise.all([
+      apiRequestWithRefresh<ApiList<AdminSetup>>("/api/v1/admissions/admin-setups/"),
+      apiRequestWithRefresh<ApiList<SchoolClass>>("/api/v1/core/classes/"),
+    ]);
 
-  const authHeaders = (): Record<string, string> => {
-    const token = getAccessToken();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    return headers;
+    const setupRows = listData(setupData);
+    setSources(setupRows.filter((row) => row.type === "3"));
+    setReferences(setupRows.filter((row) => row.type === "4"));
+    setClasses(listData(classData));
   };
 
   const loadInquiries = async () => {
-    setLoading(true);
-    setError("");
+    const params = new URLSearchParams();
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    if (sourceFilter) params.set("source", sourceFilter);
+    if (statusFilter) params.set("status", statusFilter);
+
+    const query = params.toString();
+    const data = await apiRequestWithRefresh<ApiList<Inquiry>>(`/api/v1/admissions/inquiries/${query ? `?${query}` : ""}`);
+    setItems(listData(data));
+  };
+
+  const loadAll = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/admissions/inquiries/`, {
-        cache: "no-store",
-        headers: authHeaders(),
-      });
-      if (!response.ok) throw new Error(`${response.status}`);
-      const data = (await response.json()) as InquiryListResponse | Inquiry[];
-      setItems(Array.isArray(data) ? data : data.results || []);
+      setLoading(true);
+      setError("");
+      await Promise.all([loadOptions(), loadInquiries()]);
     } catch {
-      setError("Unable to load admissions. Ensure you are logged in.");
+      setError("Unable to load admission query data.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadInquiries();
+    void loadAll();
   }, []);
 
-  const submitInquiry = async (event: FormEvent) => {
+  const resetForm = () => {
+    setEditingId(null);
+    setForm(initialForm());
+  };
+
+  const onChange = (key: keyof InquiryForm, value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!fullName.trim() || !phone.trim() || !className.trim()) {
-      setError("Full name, phone, and class are required.");
+    if (!form.query_date || !form.next_follow_up_date || !form.assigned.trim() || !form.reference || !form.source || !form.no_of_child.trim()) {
+      setError("Date, next follow-up date, assigned, reference, source and number of child are required.");
       return;
     }
-    if (!getAccessToken()) {
-      setError("Login is required before creating inquiries.");
-      return;
-    }
+
+    const payload = {
+      full_name: form.full_name.trim(),
+      phone: form.phone.trim(),
+      email: form.email.trim(),
+      address: form.address.trim(),
+      description: form.description.trim(),
+      query_date: form.query_date,
+      next_follow_up_date: form.next_follow_up_date,
+      assigned: form.assigned.trim(),
+      reference: Number(form.reference),
+      source: Number(form.source),
+      school_class: form.school_class ? Number(form.school_class) : null,
+      no_of_child: Number(form.no_of_child || 0),
+      active_status: Number(form.active_status),
+      status: form.status,
+      note: form.note.trim(),
+    };
+
     try {
-      setSubmitting(true);
+      setSaving(true);
       setError("");
-      const response = await fetch(`${API_BASE_URL}/api/v1/admissions/inquiries/`, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({
-          full_name: fullName.trim(),
-          phone: phone.trim(),
-          email: email.trim(),
-          class_name: className.trim(),
-          note: note.trim(),
-          status: "new",
-        }),
-      });
-      if (!response.ok) throw new Error(`${response.status}`);
-      setFullName(""); setPhone(""); setEmail(""); setClassName(""); setNote("");
+      setSuccess("");
+      if (editingId) {
+        await apiRequestWithRefresh(`/api/v1/admissions/inquiries/${editingId}/`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        setSuccess("Admission query updated successfully.");
+      } else {
+        await apiRequestWithRefresh("/api/v1/admissions/inquiries/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        setSuccess("Admission query created successfully.");
+      }
+      resetForm();
       await loadInquiries();
     } catch {
-      setError("Unable to create inquiry. Verify auth and school context.");
+      setError(editingId ? "Unable to update admission query." : "Unable to create admission query.");
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  const changeStatus = async (inquiryId: number, newStatus: InquiryStatus) => {
-    const response = await fetch(`${API_BASE_URL}/api/v1/admissions/inquiries/${inquiryId}/`, {
-      method: "PATCH",
-      headers: authHeaders(),
-      body: JSON.stringify({ status: newStatus }),
+  const edit = (row: Inquiry) => {
+    setEditingId(row.id);
+    setForm({
+      full_name: row.full_name || "",
+      phone: row.phone || "",
+      email: row.email || "",
+      address: row.address || "",
+      description: row.description || "",
+      query_date: row.query_date || "",
+      next_follow_up_date: row.next_follow_up_date || "",
+      assigned: row.assigned || "",
+      reference: row.reference ? String(row.reference) : "",
+      source: row.source ? String(row.source) : "",
+      school_class: row.school_class ? String(row.school_class) : "",
+      no_of_child: String(row.no_of_child || 1),
+      active_status: String(row.active_status || 1) as "1" | "2",
+      status: row.status || "new",
+      note: row.note || "",
     });
-    if (response.ok) await loadInquiries();
   };
 
-  const submitFollowUp = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!followNote.trim() || selectedId === null) return;
+  const remove = async (id: number) => {
+    if (!window.confirm("Are you sure to delete this admission query?")) return;
     try {
-      setAddingFollowUp(true);
-      const response = await fetch(`${API_BASE_URL}/api/v1/admissions/follow-ups/`, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({
-          inquiry: selectedId,
-          note: followNote.trim(),
-          status_after: followStatus || undefined,
-        }),
-      });
-      if (!response.ok) throw new Error(`${response.status}`);
-      setFollowNote(""); setFollowStatus("");
-      await loadInquiries();
+      setDeletingId(id);
+      setError("");
+      setSuccess("");
+      await apiRequestWithRefresh(`/api/v1/admissions/inquiries/${id}/`, { method: "DELETE" });
+      setItems((prev) => prev.filter((row) => row.id !== id));
+      setSuccess("Admission query deleted.");
     } catch {
-      setError("Unable to save follow-up.");
+      setError("Unable to delete admission query.");
     } finally {
-      setAddingFollowUp(false);
+      setDeletingId(null);
     }
   };
-
-  const selectedInquiry = items.find((i) => i.id === selectedId) || null;
 
   return (
-    <section>
-      <div style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 24 }}>Admissions</h1>
-        <p style={{ marginTop: 8, color: "var(--text-muted)" }}>Capture and track admission inquiries.</p>
-      </div>
-
-      {/* Create inquiry form */}
-      <div
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--line)",
-          borderRadius: "var(--radius)",
-          padding: 16,
-          marginBottom: 14,
-        }}
-      >
-        <div style={{ fontWeight: 600, marginBottom: 10 }}>New Inquiry</div>
-        <form onSubmit={submitInquiry} style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
-          <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name" style={{ height: 38, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }} />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" style={{ height: 38, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }} />
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" style={{ height: 38, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }} />
-          <input value={className} onChange={(e) => setClassName(e.target.value)} placeholder="Interested class" style={{ height: 38, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }} />
-          <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Notes" rows={2} style={{ gridColumn: "1 / -1", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
-          <div style={{ gridColumn: "1 / -1" }}>
-            <button type="submit" disabled={submitting} style={{ border: "1px solid var(--primary)", background: "var(--primary)", color: "#fff", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>
-              {submitting ? "Savingâ€¦" : "Create Inquiry"}
-            </button>
+    <div className="legacy-panel">
+      <section className="sms-breadcrumb mb-20">
+        <div className="container-fluid">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h1 style={{ margin: 0, fontSize: 24 }}>Admission Query</h1>
+            <div style={{ display: "flex", gap: 8, color: "var(--text-muted)", fontSize: 13 }}>
+              <span>Dashboard</span><span>/</span><span>Admin Section</span><span>/</span><span>Admission Query</span>
+            </div>
           </div>
-        </form>
-      </div>
-
-      {error && <div style={{ padding: "10px 14px", color: "var(--warning)", marginBottom: 10 }}>{error}</div>}
-
-      {/* Split layout: list left, timeline right */}
-      <div style={{ display: "grid", gridTemplateColumns: selectedId ? "1fr 380px" : "1fr", gap: 14 }}>
-        {/* Inquiry list */}
-        <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--radius)", overflow: "hidden" }}>
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)", fontWeight: 600 }}>Inquiry List</div>
-          {loading && <div style={{ padding: 14, color: "var(--text-muted)" }}>Loading admissionsâ€¦</div>}
-          {!loading && items.length === 0 && <div style={{ padding: 14, color: "var(--text-muted)" }}>No admissions found yet.</div>}
-          {!loading && items.length > 0 && (
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: "var(--surface-muted)", textAlign: "left" }}>
-                  <th style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>Name</th>
-                  <th style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>Phone</th>
-                  <th style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>Class</th>
-                  <th style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>Status</th>
-                  <th style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>Created</th>
-                  <th style={{ padding: 10, borderBottom: "1px solid var(--line)" }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => {
-                  const active = selectedId === item.id;
-                  const color = STATUS_COLORS[item.status as InquiryStatus] ?? "#888";
-                  return (
-                    <tr key={item.id} style={{ background: active ? "var(--surface-muted)" : undefined }}>
-                      <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.full_name}</td>
-                      <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.phone}</td>
-                      <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.class_name}</td>
-                      <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
-                        <select
-                          value={item.status}
-                          onChange={(e) => changeStatus(item.id, e.target.value as InquiryStatus)}
-                          style={{ border: `1px solid ${color}`, color, borderRadius: 6, padding: "2px 6px", fontSize: 13, background: "transparent", cursor: "pointer" }}
-                        >
-                          {STATUSES.map((s) => (
-                            <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td style={{ padding: 10, borderBottom: "1px solid var(--line)", fontSize: 13, color: "var(--text-muted)" }}>
-                        {new Date(item.created_at).toLocaleDateString()}
-                      </td>
-                      <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
-                        <button
-                          onClick={() => setSelectedId(active ? null : item.id)}
-                          style={{ fontSize: 12, border: "1px solid var(--line)", borderRadius: 6, padding: "3px 10px", cursor: "pointer", background: active ? "var(--primary)" : "transparent", color: active ? "#fff" : "inherit" }}
-                        >
-                          {active ? "Close" : "Timeline"}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
         </div>
+      </section>
 
-        {/* Follow-up timeline panel */}
-        {selectedInquiry && (
-          <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--radius)", display: "flex", flexDirection: "column" }}>
-            <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)", fontWeight: 600 }}>
-              Timeline â€” {selectedInquiry.full_name}
+      <section className="admin-visitor-area up_admin_visitor">
+        <div className="container-fluid p-0" style={{ display: "grid", gap: 12 }}>
+          <div className="white-box" style={boxStyle()}>
+            <h3 style={{ marginTop: 0, marginBottom: 12 }}>Select Criteria</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={fieldStyle()} />
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={fieldStyle()} />
+              <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} style={fieldStyle()}>
+                <option value="">Select Source</option>
+                {sources.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={fieldStyle()}>
+                <option value="">Select Status</option>
+                <option value="1">Active</option>
+                <option value="2">Inactive</option>
+              </select>
+              <button type="button" onClick={() => void loadInquiries()} style={buttonStyle()}>Search</button>
             </div>
-
-            {/* Timeline entries */}
-            <div style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-              {selectedInquiry.follow_ups.length === 0 && (
-                <p style={{ color: "var(--text-muted)", fontSize: 13 }}>No follow-ups yet. Add the first one below.</p>
-              )}
-              {selectedInquiry.follow_ups.map((fu) => (
-                <div key={fu.id} style={{ background: "var(--surface-muted)", borderRadius: 8, padding: "10px 12px" }}>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
-                    <span>{fu.author_name ?? "System"}</span>
-                    <span>{new Date(fu.created_at).toLocaleString()}</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 14 }}>{fu.note}</p>
-                  {fu.status_after && (
-                    <span style={{ fontSize: 12, marginTop: 4, display: "inline-block", color: STATUS_COLORS[fu.status_after as InquiryStatus] ?? "#888" }}>
-                      â†’ Status: {fu.status_after}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Add follow-up form */}
-            <form onSubmit={submitFollowUp} style={{ padding: 14, borderTop: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 8 }}>
-              <textarea
-                value={followNote}
-                onChange={(e) => setFollowNote(e.target.value)}
-                placeholder="Follow-up noteâ€¦"
-                rows={3}
-                style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", resize: "vertical", fontSize: 14 }}
-              />
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <select
-                  value={followStatus}
-                  onChange={(e) => setFollowStatus(e.target.value as InquiryStatus | "")}
-                  style={{ flex: 1, height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 8px", fontSize: 13 }}
-                >
-                  <option value="">â€” no status change â€”</option>
-                  {STATUSES.map((s) => (
-                    <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-                  ))}
-                </select>
-                <button
-                  type="submit"
-                  disabled={addingFollowUp || !followNote.trim()}
-                  style={{ height: 36, padding: "0 16px", border: "1px solid var(--primary)", background: "var(--primary)", color: "#fff", borderRadius: 8, cursor: "pointer", fontSize: 13 }}
-                >
-                  {addingFollowUp ? "Savingâ€¦" : "Add"}
-                </button>
-              </div>
-            </form>
           </div>
-        )}
-      </div>
-    </section>
+
+          <div style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: 12 }}>
+            <div className="white-box" style={boxStyle()}>
+              <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Admission Query" : "Add Admission Query"}</h3>
+              <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
+                <input value={form.full_name} onChange={(e) => onChange("full_name", e.target.value)} placeholder="Name" style={fieldStyle()} />
+                <input value={form.phone} onChange={(e) => onChange("phone", e.target.value)} placeholder="Phone" style={fieldStyle()} />
+                <input type="email" value={form.email} onChange={(e) => onChange("email", e.target.value)} placeholder="Email" style={fieldStyle()} />
+                <textarea value={form.address} onChange={(e) => onChange("address", e.target.value)} placeholder="Address" rows={2} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                <textarea value={form.description} onChange={(e) => onChange("description", e.target.value)} placeholder="Description" rows={2} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                <input type="date" value={form.query_date} onChange={(e) => onChange("query_date", e.target.value)} style={fieldStyle()} />
+                <input type="date" value={form.next_follow_up_date} onChange={(e) => onChange("next_follow_up_date", e.target.value)} style={fieldStyle()} />
+                <input value={form.assigned} onChange={(e) => onChange("assigned", e.target.value)} placeholder="Assigned" style={fieldStyle()} />
+                <select value={form.reference} onChange={(e) => onChange("reference", e.target.value)} style={fieldStyle()}>
+                  <option value="">Reference *</option>
+                  {references.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+                <select value={form.source} onChange={(e) => onChange("source", e.target.value)} style={fieldStyle()}>
+                  <option value="">Source *</option>
+                  {sources.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+                <select value={form.school_class} onChange={(e) => onChange("school_class", e.target.value)} style={fieldStyle()}>
+                  <option value="">Class</option>
+                  {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+                <input value={form.no_of_child} onChange={(e) => onChange("no_of_child", e.target.value)} placeholder="Number of child" style={fieldStyle()} />
+                <select value={form.active_status} onChange={(e) => onChange("active_status", e.target.value)} style={fieldStyle()}>
+                  <option value="1">Active</option>
+                  <option value="2">Inactive</option>
+                </select>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="submit" disabled={saving} style={buttonStyle()}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</button>
+                  {editingId ? <button type="button" onClick={resetForm} style={buttonStyle("#6b7280")}>Cancel</button> : null}
+                </div>
+              </form>
+            </div>
+
+            <div className="white-box" style={boxStyle()}>
+              <h3 style={{ marginTop: 0, marginBottom: 12 }}>Query List</h3>
+              {loading ? <div style={{ color: "var(--text-muted)" }}>Loading admission queries...</div> : null}
+              {!loading && items.length === 0 ? <div style={{ color: "var(--text-muted)" }}>No admission queries found.</div> : null}
+              {!loading && items.length > 0 ? (
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ background: "var(--surface-muted)" }}>
+                      <th style={{ padding: 10, textAlign: "left", borderBottom: "1px solid var(--line)" }}>Name</th>
+                      <th style={{ padding: 10, textAlign: "left", borderBottom: "1px solid var(--line)" }}>Phone</th>
+                      <th style={{ padding: 10, textAlign: "left", borderBottom: "1px solid var(--line)" }}>Source</th>
+                      <th style={{ padding: 10, textAlign: "left", borderBottom: "1px solid var(--line)" }}>Query Date</th>
+                      <th style={{ padding: 10, textAlign: "left", borderBottom: "1px solid var(--line)" }}>Last Follow Up</th>
+                      <th style={{ padding: 10, textAlign: "left", borderBottom: "1px solid var(--line)" }}>Next Follow Up</th>
+                      <th style={{ padding: 10, textAlign: "left", borderBottom: "1px solid var(--line)" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={item.id}>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.full_name || "-"}</td>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.phone || "-"}</td>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.source_name || "-"}</td>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.query_date || "-"}</td>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.follow_up_date || "-"}</td>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.next_follow_up_date || "-"}</td>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            <button type="button" onClick={() => router.push(`/administration/admission-query/${item.id}`)} style={buttonStyle("#0f766e")}>Add Query</button>
+                            <button type="button" onClick={() => edit(item)} style={buttonStyle("#0ea5e9")}>Edit</button>
+                            <button type="button" disabled={deletingId === item.id} onClick={() => void remove(item.id)} style={buttonStyle("#dc2626")}>Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : null}
+            </div>
+          </div>
+
+          {error ? <p style={{ color: "var(--warning)", margin: 0 }}>{error}</p> : null}
+          {success ? <p style={{ color: "#0f766e", margin: 0 }}>{success}</p> : null}
+        </div>
+      </section>
+    </div>
   );
 }

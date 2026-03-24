@@ -101,16 +101,22 @@ export function StudentUnassignedPanel() {
     try {
       setLoading(true);
       setError("");
-      const [studentData, guardianData, categoryData] = await Promise.all([
-        apiGet<ApiList<StudentRow>>("/api/v1/students/students/"),
+      const studentData = await apiGet<ApiList<StudentRow>>("/api/v1/students/students/");
+      const [guardianResult, categoryResult] = await Promise.allSettled([
         apiGet<ApiList<Guardian>>("/api/v1/students/guardians/"),
         apiGet<ApiList<StudentCategory>>("/api/v1/students/categories/"),
       ]);
+
       setStudents(listData(studentData));
-      setGuardians(listData(guardianData));
-      setCategories(listData(categoryData));
-    } catch {
-      setError("Unable to load unassigned students.");
+      setGuardians(guardianResult.status === "fulfilled" ? listData(guardianResult.value) : []);
+      setCategories(categoryResult.status === "fulfilled" ? listData(categoryResult.value) : []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message === "401") {
+        setError("Session expired. Please login again.");
+      } else {
+        setError("Unable to load unassigned students.");
+      }
     } finally {
       setLoading(false);
     }
@@ -239,7 +245,7 @@ export function StudentUnassignedPanel() {
                           <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
                             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               <Link
-                                href={`/students/multi-class?student=${row.id}`}
+                                href={`/students/assign-class/${row.id}`}
                                 style={{ ...buttonStyle("#0284c7"), display: "inline-flex", alignItems: "center", textDecoration: "none" }}
                               >
                                 Assign Class

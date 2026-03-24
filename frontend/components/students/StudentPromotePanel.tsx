@@ -113,8 +113,9 @@ export function StudentPromotePanel() {
         if (current) {
           setCurrentYearId(String(current.id));
         }
-      } catch {
-        setError("Unable to load promote criteria.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        setError(message && message !== "401" ? message : "Unable to load promote criteria.");
       } finally {
         setLoadingCriteria(false);
       }
@@ -124,12 +125,12 @@ export function StudentPromotePanel() {
 
   const currentSections = useMemo(() => {
     if (!currentClassId) return [];
-    return sections.filter((item) => String(item.school_class) === currentClassId);
+    return sections.filter((item) => Number(item.school_class) === Number(currentClassId));
   }, [sections, currentClassId]);
 
   const promoteSections = useMemo(() => {
     if (!promoteClassId) return [];
-    return sections.filter((item) => String(item.school_class) === promoteClassId);
+    return sections.filter((item) => Number(item.school_class) === Number(promoteClassId));
   }, [sections, promoteClassId]);
 
   const classMap = useMemo(() => new Map(classes.map((item) => [item.id, item.name])), [classes]);
@@ -173,8 +174,9 @@ export function StudentPromotePanel() {
         init[row.id] = false;
       });
       setChecked(init);
-    } catch {
-      setError("Unable to fetch students for promotion.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setError(message && message !== "401" ? message : "Unable to fetch students for promotion.");
     } finally {
       setLoadingStudents(false);
     }
@@ -197,6 +199,10 @@ export function StudentPromotePanel() {
       setError("Select promote class.");
       return;
     }
+    if (!promoteYearId) {
+      setError("Select promote academic year.");
+      return;
+    }
 
     try {
       setPromoting(true);
@@ -207,15 +213,16 @@ export function StudentPromotePanel() {
         student_ids: selectedIds,
         to_class: Number(promoteClassId),
         to_section: promoteSectionId ? Number(promoteSectionId) : null,
-        to_academic_year: promoteYearId ? Number(promoteYearId) : null,
+        to_academic_year: Number(promoteYearId),
         note: "Promoted from Student Promote panel",
       };
 
       const result = await apiPost<{ promoted: number }>("/api/v1/students/students/promote/", payload);
       setSuccess(`${result.promoted || 0} student(s) promoted successfully.`);
       await search();
-    } catch {
-      setError("Unable to promote selected students.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setError(message && message !== "401" ? message : "Unable to promote selected students.");
     } finally {
       setPromoting(false);
     }
@@ -324,7 +331,7 @@ export function StudentPromotePanel() {
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(150px, 1fr))", gap: 8, marginTop: 12 }}>
               <select value={promoteYearId} onChange={(e) => setPromoteYearId(e.target.value)} style={fieldStyle()}>
-                <option value="">Select Academic Year</option>
+                <option value="">Select Academic Year *</option>
                 {years
                   .filter((item) => !currentYearId || String(item.id) !== currentYearId)
                   .map((item) => (
