@@ -9,7 +9,7 @@ export const sidebarMenu: SidebarItem[] = [
   { id: "dashboard", name: "Dashboard", route: "/dashboard" },
   {
     id: "role-permission",
-    name: "Role & Permission",
+    name: "Role Permission",
     children: [
       { id: "roles", name: "Role", route: "/roles" },
       { id: "assign-permission", name: "Assign Permission", route: "/roles/assign-permission" },
@@ -49,10 +49,16 @@ export const sidebarMenu: SidebarItem[] = [
       { id: "delete-student-record", name: "Delete Student Record", route: "/students/delete-record" },
       { id: "unassigned-student", name: "Unassigned Student", route: "/students/unassigned" },
       { id: "student-attendance", name: "Student Attendance", route: "/attendance/student" },
+      { id: "student-attendance-import", name: "Student Attendance Import", route: "/attendance/student/import" },
       { id: "student-group", name: "Student Group", route: "/students/group" },
       { id: "student-promote", name: "Student Promote", route: "/students/promote" },
       { id: "disabled-students", name: "Disabled Students", route: "/students/disabled" },
       { id: "subject-wise-attendance", name: "Subject Wise Attendance", route: "/attendance/subject" },
+      {
+        id: "subject-wise-attendance-report",
+        name: "Subject Wise Attendance Report",
+        route: "/attendance/subject-report",
+      },
       { id: "student-export", name: "Student Export", route: "/students/export" },
       { id: "sms-sending-time", name: "SMS Sending Time", route: "/students/sms-sending-time" },
     ],
@@ -62,6 +68,10 @@ export const sidebarMenu: SidebarItem[] = [
     name: "Academics",
     children: [
       { id: "core-setup", name: "Core Setup", route: "/academics/core-setup" },
+      { id: "assign-class-teacher", name: "Assign Class Teacher", route: "/academics/assign-class-teacher" },
+      { id: "assign-subject", name: "Assign Subject", route: "/academics/assign-subject" },
+      { id: "class-room", name: "Class Room", route: "/academics/class-room" },
+      { id: "class-routine", name: "Class Routine", route: "/academics/class-routine" },
       { id: "lessons", name: "Lesson", route: "/academics/lessons" },
       { id: "topics", name: "Topic", route: "/academics/topics" },
       { id: "lesson-planner", name: "Lesson Planner", route: "/academics/lesson-planner" },
@@ -133,12 +143,20 @@ export const sidebarMenu: SidebarItem[] = [
   },
   {
     id: "finance",
-    name: "Finance",
+    name: "Accounts",
     children: [
       { id: "chart-of-accounts", name: "Chart Of Accounts", route: "/finance/chart-of-accounts" },
       { id: "bank-accounts", name: "Bank Accounts", route: "/finance/bank-accounts" },
       { id: "ledger-entries", name: "Ledger Entries", route: "/finance/ledger" },
       { id: "fund-transfer", name: "Fund Transfer", route: "/finance/fund-transfer" },
+    ],
+  },
+  {
+    id: "settings",
+    name: "Settings Section",
+    children: [
+      { id: "general-settings", name: "General Settings", route: "/setup" },
+      { id: "class-periods", name: "Class Periods", route: "/setup/class-periods" },
     ],
   },
 ];

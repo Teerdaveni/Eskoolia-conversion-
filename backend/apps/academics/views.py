@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta
 
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from apps.hr.models import Staff
 from apps.users.models import User
 from .models import (
     ClassOptionalSubjectSetup,
@@ -73,15 +75,56 @@ class ClassSubjectAssignmentViewSet(TenantScopedModelViewSet):
     model = ClassSubjectAssignment
     serializer_class = ClassSubjectAssignmentSerializer
 
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related("school_class", "section", "subject", "teacher", "academic_year")
+        return self.filter_queryset_by_params(
+            queryset,
+            {
+                "class_id": "school_class_id",
+                "section_id": "section_id",
+                "subject_id": "subject_id",
+                "teacher_id": "teacher_id",
+                "academic_year_id": "academic_year_id",
+            },
+        )
+
 
 class ClassTeacherAssignmentViewSet(TenantScopedModelViewSet):
     model = ClassTeacherAssignment
     serializer_class = ClassTeacherAssignmentSerializer
 
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related("school_class", "section", "teacher", "academic_year")
+        return self.filter_queryset_by_params(
+            queryset,
+            {
+                "class_id": "school_class_id",
+                "section_id": "section_id",
+                "teacher_id": "teacher_id",
+                "academic_year_id": "academic_year_id",
+            },
+        )
+
 
 class ClassRoutineSlotViewSet(TenantScopedModelViewSet):
     model = ClassRoutineSlot
     serializer_class = ClassRoutineSlotSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related("school_class", "section", "subject", "teacher", "academic_year")
+        queryset = self.filter_queryset_by_params(
+            queryset,
+            {
+                "class_id": "school_class_id",
+                "section_id": "section_id",
+                "subject_id": "subject_id",
+                "teacher_id": "teacher_id",
+                "academic_year_id": "academic_year_id",
+                "day": "day",
+                "class_period_id": "class_period_id",
+            },
+        )
+        return queryset.order_by("day", "start_time")
 
 
 class ClassOptionalSubjectSetupViewSet(TenantScopedModelViewSet):
@@ -581,16 +624,31 @@ class LessonPlannerViewSet(TenantScopedModelViewSet):
     @action(detail=False, methods=["get"], url_path="teachers")
     def teachers(self, request):
         user = request.user
-        queryset = User.objects.filter(is_active=True)
+        queryset = User.objects.filter(is_active=True, access_status=True)
         if not user.is_superuser:
             if not user.school_id:
                 return Response([])
             queryset = queryset.filter(school_id=user.school_id)
 
-        # Prefer role-based teacher users; fallback to all active users if no teacher role exists yet.
-        teacher_queryset = queryset.filter(user_roles__role__name__icontains="teacher").distinct()
-        if teacher_queryset.exists():
-            queryset = teacher_queryset
+        # Collect teacher users from both role-mapping and HR staff profile mapping.
+        teacher_user_ids = set(
+            queryset.filter(user_roles__role__name__icontains="teacher").values_list("id", flat=True)
+        )
+
+        staff_qs = Staff.objects.filter(status=Staff.STATUS_ACTIVE, user_id__isnull=False)
+        if not user.is_superuser:
+            staff_qs = staff_qs.filter(school_id=user.school_id)
+        staff_teacher_ids = staff_qs.filter(
+            Q(role__name__icontains="teacher") | Q(designation__name__icontains="teacher")
+        ).values_list("user_id", flat=True)
+        teacher_user_ids.update(staff_teacher_ids)
+
+        if teacher_user_ids:
+            queryset = queryset.filter(id__in=teacher_user_ids)
+        else:
+            queryset = queryset.none()
+
+        queryset = queryset.exclude(is_superuser=True).exclude(is_school_admin=True)
 
         data = [
             {

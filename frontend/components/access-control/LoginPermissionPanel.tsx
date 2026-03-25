@@ -26,6 +26,11 @@ type LoginUserRow = {
   roll_no: string;
   class_name: string;
   section_name: string;
+  parent_user_id?: number | null;
+  parent_username?: string;
+  parent_name?: string;
+  parent_email?: string;
+  parent_access_status?: boolean;
 };
 
 type UserResponse = {
@@ -41,10 +46,15 @@ export function LoginPermissionPanel() {
   const [roleId, setRoleId] = useState("");
   const [classId, setClassId] = useState("");
   const [sectionId, setSectionId] = useState("");
-  const [search, setSearch] = useState("");
+  const [name, setName] = useState("");
+  const [admissionNo, setAdmissionNo] = useState("");
+  const [rollNo, setRollNo] = useState("");
 
   const [rows, setRows] = useState<LoginUserRow[]>([]);
+  const [loadingCriteria, setLoadingCriteria] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [actionUserId, setActionUserId] = useState<number | null>(null);
+  const [actionType, setActionType] = useState<"toggle" | "password" | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [passwordMap, setPasswordMap] = useState<Record<number, string>>({});
@@ -52,7 +62,7 @@ export function LoginPermissionPanel() {
   const selectedRole = useMemo(() => roles.find((r) => String(r.id) === roleId) || null, [roles, roleId]);
   const isStudentRole = useMemo(() => {
     if (!selectedRole) return false;
-    return selectedRole.name.toLowerCase().includes("student") || selectedRole.id === 2;
+    return selectedRole.name.toLowerCase().includes("student");
   }, [selectedRole]);
 
   const filteredSections = useMemo(() => {
@@ -61,6 +71,8 @@ export function LoginPermissionPanel() {
   }, [sections, classId]);
 
   const loadCriteria = async () => {
+    setLoadingCriteria(true);
+    setError("");
     try {
       const payload = await apiRequestWithRefresh<CriteriaResponse>("/api/v1/access-control/login-access-control/");
       setRoles(payload.roles || []);
@@ -68,6 +80,8 @@ export function LoginPermissionPanel() {
       setSections(payload.sections || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load criteria.");
+    } finally {
+      setLoadingCriteria(false);
     }
   };
 
@@ -85,6 +99,11 @@ export function LoginPermissionPanel() {
       return;
     }
 
+    if (isStudentRole && !classId) {
+      setError("Select class for student role.");
+      return;
+    }
+
     setLoading(true);
     setError("");
     setMessage("");
@@ -93,7 +112,9 @@ export function LoginPermissionPanel() {
       query.set("role", roleId);
       if (classId) query.set("class", classId);
       if (sectionId) query.set("section", sectionId);
-      if (search.trim()) query.set("search", search.trim());
+      if (name.trim()) query.set("name", name.trim());
+      if (admissionNo.trim()) query.set("admission_no", admissionNo.trim());
+      if (rollNo.trim()) query.set("roll_no", rollNo.trim());
 
       const payload = await apiRequestWithRefresh<UserResponse>(
         `/api/v1/access-control/login-access-control/users/?${query.toString()}`,
@@ -110,6 +131,8 @@ export function LoginPermissionPanel() {
   const toggle = async (userId: number, checked: boolean) => {
     setError("");
     setMessage("");
+    setActionUserId(userId);
+    setActionType("toggle");
     try {
       await apiRequestWithRefresh("/api/v1/access-control/login-access-control/toggle/", {
         method: "POST",
@@ -121,17 +144,24 @@ export function LoginPermissionPanel() {
       setMessage("Login permission updated.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update permission.");
+    } finally {
+      setActionUserId(null);
+      setActionType(null);
     }
   };
 
   const resetPassword = async (userId: number, defaultPassword = false) => {
     setError("");
     setMessage("");
+    setActionUserId(userId);
+    setActionType("password");
     try {
       const entered = (passwordMap[userId] || "").trim();
       const password = defaultPassword ? "123456" : entered;
       if (!password) {
         setError("Enter password before update.");
+        setActionUserId(null);
+        setActionType(null);
         return;
       }
 
@@ -147,28 +177,41 @@ export function LoginPermissionPanel() {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to reset password.");
+    } finally {
+      setActionUserId(null);
+      setActionType(null);
     }
   };
 
+  const tableColSpan = isStudentRole ? 8 : 6;
+
   return (
-    <section>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 24 }}>Login Permission</h1>
-          <p style={{ marginTop: 8, color: "var(--text-muted)" }}>Search users by role and toggle login access.</p>
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Link href="/roles" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px", textDecoration: "none", color: "var(--text)" }}>Role</Link>
-          <Link href="/roles/assign-permission" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px", textDecoration: "none", color: "var(--text)" }}>Assign Permission</Link>
-          <Link href="/roles/due-fees-login-permission" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px", textDecoration: "none", color: "var(--text)" }}>Due Fees Login Permission</Link>
+    <section className="admin-visitor-area up_st_admin_visitor">
+      <div style={{ marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <h1 style={{ margin: 0, fontSize: 24 }}>Login Permission</h1>
+        <div style={{ display: "flex", gap: 8, fontSize: 13, color: "var(--text-muted)", flexWrap: "wrap" }}>
+          <span>Dashboard</span>
+          <span>|</span>
+          <span>Role Permission</span>
+          <span>|</span>
+          <span>Login Permission</span>
         </div>
       </div>
 
       <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0 }}>Select Criteria</h3>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Link href="/roles" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px", textDecoration: "none", color: "var(--text)" }}>Role</Link>
+            <Link href="/roles/assign-permission" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px", textDecoration: "none", color: "var(--text)" }}>Assign Permission</Link>
+            <Link href="/roles/due-fees-login-permission" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px", textDecoration: "none", color: "var(--text)" }}>Due Fees Login Permission</Link>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: isStudentRole ? "repeat(5, minmax(0, 1fr))" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
           <div>
-            <label style={{ display: "block", marginBottom: 4 }}>Role</label>
-            <select value={roleId} onChange={(e) => setRoleId(e.target.value)} style={{ width: "100%", height: 36 }}>
+            <label style={{ display: "block", marginBottom: 4 }}>Role *</label>
+            <select value={roleId} onChange={(e) => setRoleId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={loadingCriteria || loading}>
               <option value="">Select role</option>
               {roles.map((role) => (
                 <option key={role.id} value={role.id}>{role.name}</option>
@@ -176,35 +219,44 @@ export function LoginPermissionPanel() {
             </select>
           </div>
 
-          <div>
-            <label style={{ display: "block", marginBottom: 4 }}>Class</label>
-            <select value={classId} onChange={(e) => setClassId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={!isStudentRole}>
-              <option value="">Select class</option>
-              {classes.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
-            </select>
-          </div>
+          {isStudentRole ? (
+            <>
+              <div>
+                <label style={{ display: "block", marginBottom: 4 }}>Class *</label>
+                <select value={classId} onChange={(e) => setClassId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={loading}>
+                  <option value="">Select class</option>
+                  {classes.map((item) => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
+                  ))}
+                </select>
+              </div>
 
-          <div>
-            <label style={{ display: "block", marginBottom: 4 }}>Section</label>
-            <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={!isStudentRole}>
-              <option value="">Select section</option>
-              {filteredSections.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
-            </select>
-          </div>
+              <div>
+                <label style={{ display: "block", marginBottom: 4 }}>Section</label>
+                <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={loading}>
+                  <option value="">Select section</option>
+                  {filteredSections.map((item) => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
+                  ))}
+                </select>
+              </div>
 
-          <div>
-            <label style={{ display: "block", marginBottom: 4 }}>Search</label>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name/Username" style={{ width: "100%", height: 36, boxSizing: "border-box" }} />
-          </div>
+              <div>
+                <label style={{ display: "block", marginBottom: 4 }}>Name</label>
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Student name" style={{ width: "100%", height: 36, boxSizing: "border-box" }} />
+              </div>
+
+              <div>
+                <label style={{ display: "block", marginBottom: 4 }}>Roll No</label>
+                <input value={rollNo} onChange={(e) => setRollNo(e.target.value)} placeholder="Roll no" style={{ width: "100%", height: 36, boxSizing: "border-box" }} />
+              </div>
+            </>
+          ) : null}
         </div>
 
         <div style={{ marginTop: 10, textAlign: "right" }}>
-          <button type="button" onClick={searchUsers} style={{ border: "1px solid var(--primary)", background: "var(--primary)", color: "#fff", borderRadius: 8, padding: "8px 14px" }}>
-            Search
+          <button type="button" onClick={searchUsers} disabled={loadingCriteria || loading} style={{ border: "1px solid var(--primary)", background: "var(--primary)", color: "#fff", borderRadius: 8, padding: "8px 14px", opacity: loadingCriteria || loading ? 0.7 : 1 }}>
+            {loading ? "Searching..." : "Search"}
           </button>
         </div>
       </div>
@@ -213,36 +265,43 @@ export function LoginPermissionPanel() {
       {message && <div style={{ marginBottom: 8, color: "var(--primary)" }}>{message}</div>}
 
       <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isStudentRole ? 1250 : 980 }}>
           <thead>
             <tr style={{ background: "var(--surface-muted)" }}>
               {isStudentRole ? (
                 <>
                   <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Admission</th>
                   <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Roll</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Name</th>
                   <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Class</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Student Permission</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Student Password</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Parent Permission</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Parent Password</th>
                 </>
               ) : (
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Staff No</th>
+                <>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Staff No</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Name</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Role</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Email</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Login Permission</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Password</th>
+                </>
               )}
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Name</th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Username</th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Email</th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Login Permission</th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Password</th>
             </tr>
           </thead>
           <tbody>
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={8} style={{ padding: 10, color: "var(--text-muted)" }}>
+                <td colSpan={tableColSpan} style={{ padding: 10, color: "var(--text-muted)" }}>
                   No users found. Select role and click search.
                 </td>
               </tr>
             )}
             {loading && (
               <tr>
-                <td colSpan={8} style={{ padding: 10, color: "var(--text-muted)" }}>Loading...</td>
+                <td colSpan={tableColSpan} style={{ padding: 10, color: "var(--text-muted)" }}>Loading...</td>
               </tr>
             )}
             {!loading && rows.map((row) => (
@@ -251,40 +310,102 @@ export function LoginPermissionPanel() {
                   <>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.admission_no || "-"}</td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.roll_no || "-"}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
                       {row.class_name ? `${row.class_name}${row.section_name ? ` (${row.section_name})` : ""}` : "-"}
                     </td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                      <input
+                        type="checkbox"
+                        checked={row.access_status}
+                        disabled={actionType === "toggle" && actionUserId === row.user_id}
+                        onChange={(event) => void toggle(row.user_id, event.target.checked)}
+                      />
+                    </td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        <input
+                          type="text"
+                          value={passwordMap[row.user_id] || ""}
+                          onChange={(event) => setPasswordMap((prev) => ({ ...prev, [row.user_id]: event.target.value }))}
+                          placeholder="New password"
+                          style={{ height: 30, minWidth: 120 }}
+                        />
+                        <button type="button" onClick={() => void resetPassword(row.user_id, false)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
+                          Update
+                        </button>
+                        <button type="button" onClick={() => void resetPassword(row.user_id, true)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
+                          Default
+                        </button>
+                      </div>
+                    </td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                      {row.parent_user_id ? (
+                        <input
+                          type="checkbox"
+                          checked={Boolean(row.parent_access_status)}
+                          disabled={actionType === "toggle" && actionUserId === row.parent_user_id}
+                          onChange={(event) => void toggle(row.parent_user_id!, event.target.checked)}
+                        />
+                      ) : (
+                        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Not linked</span>
+                      )}
+                    </td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                      {row.parent_user_id ? (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                          <input
+                            type="text"
+                            value={passwordMap[row.parent_user_id] || ""}
+                            onChange={(event) => setPasswordMap((prev) => ({ ...prev, [row.parent_user_id!]: event.target.value }))}
+                            placeholder="Parent password"
+                            style={{ height: 30, minWidth: 120 }}
+                          />
+                          <button type="button" onClick={() => void resetPassword(row.parent_user_id!, false)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
+                            Update
+                          </button>
+                          <button type="button" onClick={() => void resetPassword(row.parent_user_id!, true)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
+                            Default
+                          </button>
+                        </div>
+                      ) : (
+                        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Not linked</span>
+                      )}
+                    </td>
                   </>
                 ) : (
-                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.staff_no || "-"}</td>
+                  <>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.staff_no || "-"}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.role_name}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.email || "-"}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                      <input
+                        type="checkbox"
+                        checked={row.access_status}
+                        disabled={actionType === "toggle" && actionUserId === row.user_id}
+                        onChange={(event) => void toggle(row.user_id, event.target.checked)}
+                      />
+                    </td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        <input
+                          type="text"
+                          value={passwordMap[row.user_id] || ""}
+                          onChange={(event) => setPasswordMap((prev) => ({ ...prev, [row.user_id]: event.target.value }))}
+                          placeholder="New password"
+                          style={{ height: 30, minWidth: 120 }}
+                        />
+                        <button type="button" onClick={() => void resetPassword(row.user_id, false)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
+                          Update
+                        </button>
+                        <button type="button" onClick={() => void resetPassword(row.user_id, true)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
+                          Default
+                        </button>
+                      </div>
+                    </td>
+                  </>
                 )}
-                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
-                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.username}</td>
-                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.email || "-"}</td>
-                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                  <input
-                    type="checkbox"
-                    checked={row.access_status}
-                    onChange={(event) => void toggle(row.user_id, event.target.checked)}
-                  />
-                </td>
-                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                    <input
-                      type="text"
-                      value={passwordMap[row.user_id] || ""}
-                      onChange={(event) => setPasswordMap((prev) => ({ ...prev, [row.user_id]: event.target.value }))}
-                      placeholder="New password"
-                      style={{ height: 30, minWidth: 120 }}
-                    />
-                    <button type="button" onClick={() => void resetPassword(row.user_id, false)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
-                      Update
-                    </button>
-                    <button type="button" onClick={() => void resetPassword(row.user_id, true)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
-                      Default
-                    </button>
-                  </div>
-                </td>
               </tr>
             ))}
           </tbody>

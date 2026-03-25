@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import AcademicYear, Class, ClassPeriod, Section, Subject
+from .models import AcademicYear, Class, ClassPeriod, ClassRoom, Section, Subject
 
 
 class AcademicYearSerializer(serializers.ModelSerializer):
@@ -36,4 +36,11 @@ class ClassPeriodSerializer(serializers.ModelSerializer):
     class Meta:
         model = ClassPeriod
         fields = ["id", "school", "period", "start_time", "end_time", "period_type", "is_break", "created_at", "updated_at"]
+        read_only_fields = ["id", "school", "created_at", "updated_at"]
+
+
+class ClassRoomSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClassRoom
+        fields = ["id", "school", "room_no", "capacity", "active_status", "created_at", "updated_at"]
         read_only_fields = ["id", "school", "created_at", "updated_at"]

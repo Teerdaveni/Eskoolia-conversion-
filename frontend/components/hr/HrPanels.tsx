@@ -1152,8 +1152,8 @@ export function HrLeaveRequestsPanel() {
       setReason("");
       setAttachment("");
       await load();
-    } catch {
-      setError("Unable to save leave request.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to save leave request.");
     }
   };
 

@@ -107,3 +107,22 @@ class ClassPeriod(models.Model):
 
     def __str__(self):
         return self.period
+
+
+class ClassRoom(models.Model):
+    school = models.ForeignKey("tenancy.School", on_delete=models.CASCADE, related_name="class_rooms")
+    room_no = models.CharField(max_length=50)
+    capacity = models.PositiveIntegerField(null=True, blank=True)
+    active_status = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "class_rooms"
+        ordering = ["room_no"]
+        constraints = [
+            models.UniqueConstraint(fields=["school", "room_no"], name="uq_class_room_school_room_no"),
+        ]
+
+    def __str__(self):
+        return self.room_no

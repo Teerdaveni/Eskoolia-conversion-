@@ -1,6 +1,13 @@
 from rest_framework import permissions, viewsets
-from .models import AcademicYear, Class, ClassPeriod, Section, Subject
-from .serializers import AcademicYearSerializer, ClassPeriodSerializer, ClassSerializer, SectionSerializer, SubjectSerializer
+from .models import AcademicYear, Class, ClassPeriod, ClassRoom, Section, Subject
+from .serializers import (
+    AcademicYearSerializer,
+    ClassPeriodSerializer,
+    ClassRoomSerializer,
+    ClassSerializer,
+    SectionSerializer,
+    SubjectSerializer,
+)
 
 
 class TenantQueryMixin:
@@ -72,3 +79,9 @@ class ClassPeriodViewSet(TenantQueryMixin, viewsets.ModelViewSet):
         if period_type:
             queryset = queryset.filter(period_type=period_type)
         return queryset.order_by("start_time", "period")
+
+
+class ClassRoomViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = ClassRoom
+    serializer_class = ClassRoomSerializer
+    permission_classes = [permissions.IsAuthenticated]

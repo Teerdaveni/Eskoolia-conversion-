@@ -89,17 +89,40 @@ class LeaveRequestViewSet(SchoolScopedModelViewSet):
     ordering_fields = ["created_at", "from_date", "to_date"]
 
     def _current_staff(self):
-        return Staff.objects.filter(user_id=self.request.user.id).first()
+        user = self.request.user
+
+        queryset = Staff.objects.all()
+        if user.school_id:
+            queryset = queryset.filter(school_id=user.school_id)
+
+        # Primary mapping: explicit one-to-one user link.
+        staff = queryset.filter(user_id=user.id).first()
+        if staff:
+            return staff
+
+        # Migration fallback: some legacy staff rows were imported without user_id.
+        # Try to resolve by email and backfill the user link when safe.
+        if user.email:
+            email_staff = queryset.filter(user__isnull=True, email__iexact=user.email).first()
+            if email_staff:
+                if not hasattr(user, "staff_profile"):
+                    email_staff.user = user
+                    email_staff.save(update_fields=["user", "updated_at"])
+                return email_staff
+
+        return None
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.request.user.is_superuser:
+        user = self.request.user
+
+        if user.is_superuser or user.is_school_admin:
             return queryset
 
         current_staff = self._current_staff()
         if current_staff:
             return queryset.filter(staff_id=current_staff.id)
-        return queryset
+        return queryset.none()
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -109,10 +132,18 @@ class LeaveRequestViewSet(SchoolScopedModelViewSet):
 
         current_staff = self._current_staff()
         requested_staff = serializer.validated_data.get("staff")
-        staff = current_staff or requested_staff
+
+        if user.is_superuser or user.is_school_admin:
+            staff = requested_staff or current_staff
+        else:
+            if requested_staff and current_staff and requested_staff.id != current_staff.id:
+                raise ValidationError({"staff": "You can only apply leave for your own profile."})
+            staff = current_staff
 
         if not staff:
-            raise ValidationError({"staff": "Staff profile is required to apply leave."})
+            raise ValidationError(
+                {"staff": "Staff profile is not linked with this user. Please contact admin to map your staff account."}
+            )
 
         if not user.is_superuser and user.school_id and staff.school_id != user.school_id:
             raise ValidationError({"staff": "Selected staff member does not belong to your school."})

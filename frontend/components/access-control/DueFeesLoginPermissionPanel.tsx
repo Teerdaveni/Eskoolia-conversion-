@@ -8,51 +8,43 @@ type Option = { id: number; name: string };
 type SectionOption = { id: number; name: string; class_id: number };
 
 type CriteriaResponse = {
-  roles: Option[];
   classes: Option[];
   sections: SectionOption[];
 };
 
 type DueUserRow = {
-  user_id: number;
-  username: string;
-  name: string;
-  role_id: number;
-  role_name: string;
-  due_fees_login_blocked: boolean;
   admission_no: string;
   roll_no: string;
+  student_name: string;
   class_name: string;
   section_name: string;
   due_amount: string;
+  student_user_id?: number | null;
+  student_access_status?: boolean;
+  parent_name?: string;
+  parent_user_id?: number | null;
+  parent_access_status?: boolean;
 };
 
 type UserResponse = {
-  role: { id: number; name: string };
   users: DueUserRow[];
 };
 
 export function DueFeesLoginPermissionPanel() {
-  const [roles, setRoles] = useState<Option[]>([]);
   const [classes, setClasses] = useState<Option[]>([]);
   const [sections, setSections] = useState<SectionOption[]>([]);
 
-  const [roleId, setRoleId] = useState("");
   const [classId, setClassId] = useState("");
   const [sectionId, setSectionId] = useState("");
   const [name, setName] = useState("");
   const [admissionNo, setAdmissionNo] = useState("");
 
   const [rows, setRows] = useState<DueUserRow[]>([]);
+  const [loadingCriteria, setLoadingCriteria] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [actionUserId, setActionUserId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-
-  const selectedRole = useMemo(() => roles.find((r) => String(r.id) === roleId) || null, [roles, roleId]);
-  const isStudentRole = useMemo(() => {
-    if (!selectedRole) return false;
-    return selectedRole.name.toLowerCase().includes("student") || selectedRole.id === 2;
-  }, [selectedRole]);
 
   const filteredSections = useMemo(() => {
     if (!classId) return sections;
@@ -60,13 +52,16 @@ export function DueFeesLoginPermissionPanel() {
   }, [sections, classId]);
 
   const loadCriteria = async () => {
+    setLoadingCriteria(true);
+    setError("");
     try {
       const payload = await apiRequestWithRefresh<CriteriaResponse>("/api/v1/access-control/due-fees-login-permission/");
-      setRoles(payload.roles || []);
       setClasses(payload.classes || []);
       setSections(payload.sections || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load criteria.");
+    } finally {
+      setLoadingCriteria(false);
     }
   };
 
@@ -79,17 +74,11 @@ export function DueFeesLoginPermissionPanel() {
   }, [classId]);
 
   const searchUsers = async () => {
-    if (!roleId) {
-      setError("Select role first.");
-      return;
-    }
-
     setLoading(true);
     setError("");
     setMessage("");
     try {
       const query = new URLSearchParams();
-      query.set("role", roleId);
       if (classId) query.set("class", classId);
       if (sectionId) query.set("section", sectionId);
       if (name.trim()) query.set("name", name.trim());
@@ -110,16 +99,30 @@ export function DueFeesLoginPermissionPanel() {
   const toggleBlocked = async (userId: number, blocked: boolean) => {
     setError("");
     setMessage("");
+    setActionUserId(userId);
     try {
       await apiRequestWithRefresh("/api/v1/access-control/due-fees-login-permission/toggle/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: userId, status: blocked }),
       });
-      setRows((prev) => prev.map((row) => (row.user_id === userId ? { ...row, due_fees_login_blocked: blocked } : row)));
+
+      setRows((prev) =>
+        prev.map((row) => {
+          if (row.student_user_id === userId) {
+            return { ...row, student_access_status: blocked };
+          }
+          if (row.parent_user_id === userId) {
+            return { ...row, parent_access_status: blocked };
+          }
+          return row;
+        }),
+      );
       setMessage("Due fees login permission updated.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update due fees permission.");
+    } finally {
+      setActionUserId(null);
     }
   };
 
@@ -140,19 +143,10 @@ export function DueFeesLoginPermissionPanel() {
       </div>
 
       <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
-          <div>
-            <label style={{ display: "block", marginBottom: 4 }}>Role</label>
-            <select value={roleId} onChange={(e) => setRoleId(e.target.value)} style={{ width: "100%", height: 36 }}>
-              <option value="">Select role</option>
-              {roles.map((role) => (
-                <option key={role.id} value={role.id}>{role.name}</option>
-              ))}
-            </select>
-          </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
           <div>
             <label style={{ display: "block", marginBottom: 4 }}>Class</label>
-            <select value={classId} onChange={(e) => setClassId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={!isStudentRole}>
+            <select value={classId} onChange={(e) => setClassId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={loading || loadingCriteria}>
               <option value="">Select class</option>
               {classes.map((item) => (
                 <option key={item.id} value={item.id}>{item.name}</option>
@@ -161,7 +155,7 @@ export function DueFeesLoginPermissionPanel() {
           </div>
           <div>
             <label style={{ display: "block", marginBottom: 4 }}>Section</label>
-            <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={!isStudentRole}>
+            <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={loading || loadingCriteria}>
               <option value="">Select section</option>
               {filteredSections.map((item) => (
                 <option key={item.id} value={item.id}>{item.name}</option>
@@ -179,8 +173,8 @@ export function DueFeesLoginPermissionPanel() {
         </div>
 
         <div style={{ marginTop: 10, textAlign: "right" }}>
-          <button type="button" onClick={searchUsers} style={{ border: "1px solid var(--primary)", background: "var(--primary)", color: "#fff", borderRadius: 8, padding: "8px 14px" }}>
-            Search
+          <button type="button" onClick={searchUsers} disabled={loading || loadingCriteria} style={{ border: "1px solid var(--primary)", background: "var(--primary)", color: "#fff", borderRadius: 8, padding: "8px 14px", opacity: loading || loadingCriteria ? 0.7 : 1 }}>
+            {loading ? "Searching..." : "Search"}
           </button>
         </div>
       </div>
@@ -189,48 +183,66 @@ export function DueFeesLoginPermissionPanel() {
       {message && <div style={{ marginBottom: 8, color: "var(--primary)" }}>{message}</div>}
 
       <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 940 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
           <thead>
             <tr style={{ background: "var(--surface-muted)" }}>
               <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Admission</th>
               <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Roll</th>
               <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Name</th>
               <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Class</th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Student Permission</th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Parent</th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Parent Permission</th>
               <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Due Amount</th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Role</th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Login Blocked</th>
             </tr>
           </thead>
           <tbody>
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ padding: 10, color: "var(--text-muted)" }}>
-                  No users found. Select role and click search.
+                <td colSpan={8} style={{ padding: 10, color: "var(--text-muted)" }}>
+                  No users found. Use criteria and click search.
                 </td>
               </tr>
             )}
             {loading && (
               <tr>
-                <td colSpan={7} style={{ padding: 10, color: "var(--text-muted)" }}>Loading...</td>
+                <td colSpan={8} style={{ padding: 10, color: "var(--text-muted)" }}>Loading...</td>
               </tr>
             )}
             {!loading && rows.map((row) => (
-              <tr key={row.user_id}>
+              <tr key={`${row.admission_no}-${row.roll_no || ""}`}>
                 <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.admission_no || "-"}</td>
                 <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.roll_no || "-"}</td>
-                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
+                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.student_name || "-"}</td>
                 <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
                   {row.class_name ? `${row.class_name}${row.section_name ? ` (${row.section_name})` : ""}` : "-"}
                 </td>
-                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.due_amount || "-"}</td>
-                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.role_name}</td>
                 <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                  <input
-                    type="checkbox"
-                    checked={row.due_fees_login_blocked}
-                    onChange={(event) => void toggleBlocked(row.user_id, event.target.checked)}
-                  />
+                  {row.student_user_id ? (
+                    <input
+                      type="checkbox"
+                      checked={Boolean(row.student_access_status)}
+                      disabled={actionUserId === row.student_user_id}
+                      onChange={(event) => void toggleBlocked(row.student_user_id!, event.target.checked)}
+                    />
+                  ) : (
+                    <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Not linked</span>
+                  )}
                 </td>
+                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.parent_name || "-"}</td>
+                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                  {row.parent_user_id ? (
+                    <input
+                      type="checkbox"
+                      checked={Boolean(row.parent_access_status)}
+                      disabled={actionUserId === row.parent_user_id}
+                      onChange={(event) => void toggleBlocked(row.parent_user_id!, event.target.checked)}
+                    />
+                  ) : (
+                    <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Not linked</span>
+                  )}
+                </td>
+                <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.due_amount || "-"}</td>
               </tr>
             ))}
           </tbody>
