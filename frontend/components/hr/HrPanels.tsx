@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequestWithRefresh } from "@/lib/api-auth";
 
 type ApiList<T> = T[] | { results?: T[] };
@@ -379,11 +380,17 @@ export function HrDesignationsPanel() {
 }
 
 export function HrStaffPanel() {
+  const router = useRouter();
   const [roles, setRoles] = useState<Role[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [editingStaffId, setEditingStaffId] = useState<number | null>(null);
+  const [editParam] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("edit") || "";
+  });
   const [activeTab, setActiveTab] = useState<"basic" | "payroll" | "bank" | "social" | "document">("basic");
 
   const [staffNo, setStaffNo] = useState("");
@@ -482,14 +489,18 @@ export function HrStaffPanel() {
   const load = async () => {
     try {
       setError("");
-      const [roleData, departmentData, designationData] = await Promise.all([
+      const [roleData, departmentData, designationData, nextStaffNo] = await Promise.all([
         apiGet<ApiList<Role>>("/api/v1/access-control/roles/"),
         apiGet<ApiList<Department>>("/api/v1/hr/departments/?is_active=true"),
         apiGet<ApiList<Designation>>("/api/v1/hr/designations/?is_active=true"),
+        apiGet<{ staff_no?: string }>("/api/v1/hr/staff/next-staff-no/"),
       ]);
       setRoles(listData(roleData));
       setDepartments(listData(departmentData));
       setDesignations(listData(designationData));
+      if (!editParam) {
+        setStaffNo((nextStaffNo.staff_no || "").trim());
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to load staff.";
       setError("Unable to load staff.");
@@ -502,6 +513,70 @@ export function HrStaffPanel() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (!editParam) {
+      setEditingStaffId(null);
+      return;
+    }
+
+    const parsedId = Number(editParam);
+    if (!Number.isFinite(parsedId) || parsedId <= 0) {
+      setError("Invalid staff id for editing.");
+      return;
+    }
+
+    const loadEditStaff = async () => {
+      try {
+        setError("");
+        setSuccess("");
+        const row = await apiGet<Staff>(`/api/v1/hr/staff/${parsedId}/`);
+        setEditingStaffId(row.id);
+        setActiveTab("basic");
+        setStaffNo(row.staff_no || "");
+        setRoleId(row.role ? String(row.role) : "");
+        setDepartmentId(row.department ? String(row.department) : "");
+        setDesignationId(row.designation ? String(row.designation) : "");
+        setFirstName(row.first_name || "");
+        setLastName(row.last_name || "");
+        setFathersName(row.fathers_name || "");
+        setMothersName(row.mothers_name || "");
+        setEmail(row.email || "");
+        setGender((row.gender || "") as "" | "male" | "female" | "other");
+        setDateOfBirth(row.date_of_birth || "");
+        setJoinDate(row.join_date || new Date().toISOString().slice(0, 10));
+        setPhone(row.phone || "");
+        setMaritalStatus((row.marital_status || "") as "" | "single" | "married");
+        setEmergencyMobile(row.emergency_mobile || "");
+        setDrivingLicense(row.driving_license || "");
+        setStaffPhoto(row.staff_photo || "");
+        setShowPublic(Boolean(row.show_public));
+        setCurrentAddress(row.current_address || "");
+        setPermanentAddress(row.permanent_address || "");
+        setQualification(row.qualification || "");
+        setExperience(row.experience || "");
+        setEpfNo(row.epf_no || "");
+        setBasicSalary(String(row.basic_salary || "0.00"));
+        setContractType((row.contract_type || "") as "" | "permanent" | "contract");
+        setLocation(row.location || "");
+        setBankAccountName(row.bank_account_name || "");
+        setBankAccountNo(row.bank_account_no || "");
+        setBankName(row.bank_name || "");
+        setBankBranch(row.bank_branch || "");
+        setFacebookUrl(row.facebook_url || "");
+        setTwitterUrl(row.twitter_url || "");
+        setLinkedinUrl(row.linkedin_url || "");
+        setInstagramUrl(row.instagram_url || "");
+        setResume(row.resume || "");
+        setJoiningLetter(row.joining_letter || "");
+        setOtherDocument(row.other_document || "");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to load staff details.");
+      }
+    };
+
+    void loadEditStaff();
+  }, [editParam]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -554,11 +629,19 @@ export function HrStaffPanel() {
         status: "active",
       };
 
+      if (editingStaffId) {
+        await apiPatch(`/api/v1/hr/staff/${editingStaffId}/`, payload);
+        setSuccess("Staff has been updated successfully.");
+        router.push("/hr/staff-directory?updated=1");
+        return;
+      }
+
       await apiPost("/api/v1/hr/staff/", payload);
 
       resetForm();
       setSuccess("Staff has been added successfully.");
       await load();
+      router.push("/hr/staff-directory?created=1");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save staff.");
     }
@@ -576,14 +659,14 @@ export function HrStaffPanel() {
 
   return (
     <div className="legacy-panel">
-      {breadcrumb("Add New Staff")}
+      {breadcrumb(editingStaffId ? "Edit Staff" : "Add New Staff")}
       <section className="admin-visitor-area up_st_admin_visitor"><div className="container-fluid p-0">
         <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-            <h3 style={{ margin: 0 }}>Staff Information</h3>
+            <h3 style={{ margin: 0 }}>{editingStaffId ? "Edit Staff Information" : "Staff Information"}</h3>
             <div style={{ display: "flex", gap: 8, flexDirection: "column", alignItems: "flex-end" }}>
               <button type="button" style={buttonStyle("#7c3aed")}>Import Staff</button>
-              <button type="submit" form="staff-form" style={buttonStyle()}>Save Staff</button>
+              <button type="submit" form="staff-form" style={buttonStyle()}>{editingStaffId ? "Update Staff" : "Save Staff"}</button>
             </div>
           </div>
 
@@ -614,7 +697,7 @@ export function HrStaffPanel() {
           <form id="staff-form" onSubmit={submit} style={{ display: "grid", gap: 12 }}>
             {activeTab === "basic" && (
               <div style={sectionGrid}>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Staff No *</span><input value={staffNo} onChange={(e) => setStaffNo(e.target.value)} style={fieldStyle()} /></label>
+                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Staff No *</span><input value={staffNo} onChange={(e) => setStaffNo(e.target.value)} style={{ ...fieldStyle(), background: "#f8fafc" }} readOnly title="Auto generated" /></label>
                 <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Role *</span><select value={roleId} onChange={(e) => setRoleId(e.target.value)} style={fieldStyle()}><option value="">Role *</option>{roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
                 <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Department</span><select value={departmentId} onChange={(e) => { setDepartmentId(e.target.value); setDesignationId(""); }} style={fieldStyle()}><option value="">Department</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
                 <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Designation</span><select value={designationId} onChange={(e) => setDesignationId(e.target.value)} style={fieldStyle()}><option value="">Designation</option>{filteredDesignations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
@@ -804,21 +887,24 @@ export function HrStaffDirectoryPanel() {
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.phone || "-"}</td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)", textTransform: "capitalize" }}>{row.status || "-"}</td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                      <button
-                        type="button"
-                        style={buttonStyle("#dc2626")}
-                        onClick={() => {
-                          if (!window.confirm("Delete this staff member?")) return;
-                          void apiDelete(`/api/v1/hr/staff/${row.id}/`).then(() => {
-                            setSuccess("Staff has been deleted successfully.");
-                            return load();
-                          }).catch((err) => {
-                            setError(err instanceof Error ? err.message : "Unable to delete staff.");
-                          });
-                        }}
-                      >
-                        Delete
-                      </button>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button type="button" style={buttonStyle("#0ea5e9")} onClick={() => { if (typeof window !== "undefined") window.location.href = `/hr/staff?edit=${row.id}`; }}>Edit</button>
+                        <button
+                          type="button"
+                          style={buttonStyle("#dc2626")}
+                          onClick={() => {
+                            if (!window.confirm("Delete this staff member?")) return;
+                            void apiDelete(`/api/v1/hr/staff/${row.id}/`).then(() => {
+                              setSuccess("Staff has been deleted successfully.");
+                              return load();
+                            }).catch((err) => {
+                              setError(err instanceof Error ? err.message : "Unable to delete staff.");
+                            });
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

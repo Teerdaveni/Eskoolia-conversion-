@@ -128,6 +128,35 @@ export const sidebarMenu: SidebarItem[] = [
     ],
   },
   {
+    id: "behaviour-records",
+    name: "Behaviour Records",
+    children: [
+      { id: "behaviour-assign-incident", name: "Assign Incident", route: "/behaviour/assign-incident" },
+      { id: "behaviour-incident", name: "Incident", route: "/behaviour/incidents" },
+      {
+        id: "behaviour-student-incident-report",
+        name: "Student Incident Report",
+        route: "/behaviour/reports/student-incident",
+      },
+      {
+        id: "behaviour-student-rank-report",
+        name: "Student Behaviour Rank Report",
+        route: "/behaviour/reports/student-rank",
+      },
+      {
+        id: "behaviour-class-section-rank-report",
+        name: "Class Section Wise Rank Report",
+        route: "/behaviour/reports/class-section-rank",
+      },
+      {
+        id: "behaviour-incident-wise-report",
+        name: "Incident Wise Report",
+        route: "/behaviour/reports/incident-wise",
+      },
+      { id: "behaviour-setting", name: "Behaviour Record Setting", route: "/behaviour/settings" },
+    ],
+  },
+  {
     id: "human-resource",
     name: "Human Resource",
     children: [

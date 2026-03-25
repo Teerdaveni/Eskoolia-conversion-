@@ -113,7 +113,22 @@ class ExamTenantMixin:
         if school_id:
             staff_qs = staff_qs.filter(school_id=school_id)
 
-        for staff in staff_qs.only("id", "user_id", "email", "updated_at"):
+        def generate_username(staff):
+            base = ""
+            if staff.email:
+                base = staff.email.split("@", 1)[0]
+            if not base:
+                joined = f"{(staff.first_name or '').strip()}.{(staff.last_name or '').strip()}".strip(".")
+                base = joined or (staff.staff_no or "teacher")
+            normalized = "".join(ch for ch in base.lower() if ch.isalnum() or ch in "._-").strip("._-") or "teacher"
+            candidate = normalized
+            serial = 1
+            while User.objects.filter(username=candidate).exists():
+                candidate = f"{normalized}{serial}"
+                serial += 1
+            return candidate
+
+        for staff in staff_qs.only("id", "user_id", "email", "first_name", "last_name", "staff_no", "school_id", "updated_at"):
             if staff.user_id:
                 teacher_user_ids.add(staff.user_id)
                 continue
@@ -125,6 +140,23 @@ class ExamTenantMixin:
                         staff.user_id = matched_user.id
                         staff.save(update_fields=["user", "updated_at"])
                     teacher_user_ids.add(matched_user.id)
+                    continue
+
+            username = generate_username(staff)
+            created_user = User.objects.create(
+                username=username,
+                first_name=(staff.first_name or "").strip(),
+                last_name=(staff.last_name or "").strip(),
+                email=(staff.email or "").strip(),
+                school_id=staff.school_id,
+                is_active=True,
+                access_status=True,
+            )
+            created_user.set_unusable_password()
+            created_user.save(update_fields=["password"])
+            staff.user_id = created_user.id
+            staff.save(update_fields=["user", "updated_at"])
+            teacher_user_ids.add(created_user.id)
 
         if not teacher_user_ids:
             return queryset.none()

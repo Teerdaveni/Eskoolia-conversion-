@@ -1,12 +1,15 @@
 from decimal import Decimal
+import re
 
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
+from apps.access_control.models import UserRole
 
 from .models import Department, Designation, LeaveDefine, LeaveRequest, LeaveType, PayrollRecord, Staff, StaffAttendance
 from .serializers import (
@@ -63,6 +66,102 @@ class StaffViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["role", "department", "designation", "status", "join_date", "gender", "marital_status", "contract_type"]
     search_fields = ["staff_no", "first_name", "last_name", "email", "phone", "emergency_mobile", "location", "driving_license"]
     ordering_fields = ["first_name", "join_date", "created_at"]
+
+    def _generate_username(self, staff):
+        User = get_user_model()
+
+        base = ""
+        if staff.email:
+            base = staff.email.split("@", 1)[0]
+        if not base:
+            name_joined = f"{(staff.first_name or '').strip()}.{(staff.last_name or '').strip()}".strip(".")
+            base = name_joined or (staff.staff_no or "staff")
+
+        normalized = re.sub(r"[^a-z0-9._-]+", "", base.lower())
+        normalized = normalized.strip("._-") or "staff"
+
+        candidate = normalized
+        serial = 1
+        while User.objects.filter(username=candidate).exists():
+            candidate = f"{normalized}{serial}"
+            serial += 1
+        return candidate
+
+    def _ensure_staff_user(self, staff):
+        User = get_user_model()
+
+        if staff.user_id:
+            if staff.role_id:
+                UserRole.objects.get_or_create(user_id=staff.user_id, role_id=staff.role_id)
+            return
+
+        matched_user = None
+        if staff.email:
+            matched_user = User.objects.filter(email__iexact=staff.email).order_by("id").first()
+            if matched_user and hasattr(matched_user, "staff_profile") and matched_user.staff_profile.id != staff.id:
+                matched_user = None
+
+        if not matched_user:
+            username = self._generate_username(staff)
+            matched_user = User.objects.create(
+                username=username,
+                first_name=(staff.first_name or "").strip(),
+                last_name=(staff.last_name or "").strip(),
+                email=(staff.email or "").strip(),
+                school_id=staff.school_id,
+                is_active=True,
+                access_status=True,
+            )
+            matched_user.set_unusable_password()
+            matched_user.save(update_fields=["password"])
+
+        staff.user_id = matched_user.id
+        staff.save(update_fields=["user", "updated_at"])
+
+        if staff.role_id:
+            UserRole.objects.get_or_create(user_id=matched_user.id, role_id=staff.role_id)
+
+    def _generate_staff_no(self, school):
+        latest = (
+            Staff.objects.filter(school=school)
+            .order_by("-created_at", "-id")
+            .values_list("staff_no", flat=True)
+            .first()
+        )
+
+        candidate_number = 1
+        if latest:
+            match = re.search(r"(\d+)$", latest)
+            if match:
+                candidate_number = int(match.group(1)) + 1
+
+        while True:
+            candidate = str(candidate_number)
+            if not Staff.objects.filter(school=school, staff_no=candidate).exists():
+                return candidate
+            candidate_number += 1
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        school = user.school or getattr(self.request, "school", None)
+        if not school and not user.is_superuser:
+            raise PermissionDenied("School context is required.")
+
+        submitted_staff_no = (serializer.validated_data.get("staff_no") or "").strip()
+        staff_no = submitted_staff_no or self._generate_staff_no(school)
+        staff = serializer.save(school=school, staff_no=staff_no)
+        self._ensure_staff_user(staff)
+
+    def perform_update(self, serializer):
+        staff = serializer.save()
+        self._ensure_staff_user(staff)
+
+    @action(detail=False, methods=["get"], url_path="next-staff-no")
+    def next_staff_no(self, request):
+        school = request.user.school or getattr(request, "school", None)
+        if not school and not request.user.is_superuser:
+            raise PermissionDenied("School context is required.")
+        return Response({"staff_no": self._generate_staff_no(school)})
 
 
 class LeaveTypeViewSet(SchoolScopedModelViewSet):
