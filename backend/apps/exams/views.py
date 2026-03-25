@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import Avg
+from django.db.models import Q
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from rest_framework import permissions, status, viewsets
@@ -11,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.models import AcademicYear, Class, Section, Subject
+from apps.hr.models import Staff
 from apps.students.models import Student
 
 from .models import (
@@ -95,10 +97,44 @@ class ExamTenantMixin:
 
     def get_teachers(self, request):
         User = get_user_model()
-        queryset = User.objects.filter(is_active=True)
+        queryset = User.objects.filter(is_active=True, access_status=True)
+        school_id = None
         if not request.user.is_superuser:
-            queryset = queryset.filter(school_id=request.user.school_id)
-        return queryset.order_by("first_name", "last_name", "username")
+            school_id = request.user.school_id
+
+        role_teacher_qs = queryset.filter(user_roles__role__name__icontains="teacher")
+        if school_id:
+            role_teacher_qs = role_teacher_qs.filter(Q(school_id=school_id) | Q(staff_profile__school_id=school_id))
+        teacher_user_ids = set(role_teacher_qs.values_list("id", flat=True))
+
+        staff_qs = Staff.objects.filter(status=Staff.STATUS_ACTIVE).filter(
+            Q(role__name__icontains="teacher") | Q(designation__name__icontains="teacher")
+        )
+        if school_id:
+            staff_qs = staff_qs.filter(school_id=school_id)
+
+        for staff in staff_qs.only("id", "user_id", "email", "updated_at"):
+            if staff.user_id:
+                teacher_user_ids.add(staff.user_id)
+                continue
+
+            if staff.email:
+                matched_user = queryset.filter(email__iexact=staff.email).first()
+                if matched_user:
+                    if not hasattr(matched_user, "staff_profile"):
+                        staff.user_id = matched_user.id
+                        staff.save(update_fields=["user", "updated_at"])
+                    teacher_user_ids.add(matched_user.id)
+
+        if not teacher_user_ids:
+            return queryset.none()
+
+        return (
+            queryset.filter(id__in=teacher_user_ids)
+            .exclude(is_superuser=True)
+            .exclude(is_school_admin=True)
+            .order_by("first_name", "last_name", "username")
+        )
 
 
 class ExamTypeIndexAPIView(ExamTenantMixin, APIView):

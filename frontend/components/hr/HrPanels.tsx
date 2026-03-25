@@ -383,6 +383,7 @@ export function HrStaffPanel() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [activeTab, setActiveTab] = useState<"basic" | "payroll" | "bank" | "social" | "document">("basic");
 
   const [staffNo, setStaffNo] = useState("");
@@ -489,8 +490,12 @@ export function HrStaffPanel() {
       setRoles(listData(roleData));
       setDepartments(listData(departmentData));
       setDesignations(listData(designationData));
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to load staff.";
       setError("Unable to load staff.");
+      if (message && message !== "Unable to load staff.") {
+        setError(message);
+      }
     }
   };
 
@@ -507,6 +512,7 @@ export function HrStaffPanel() {
 
     try {
       setError("");
+      setSuccess("");
       const payload = {
         staff_no: staffNo.trim(),
         role: roleId ? Number(roleId) : null,
@@ -551,8 +557,10 @@ export function HrStaffPanel() {
       await apiPost("/api/v1/hr/staff/", payload);
 
       resetForm();
-    } catch {
-      setError("Unable to save staff.");
+      setSuccess("Staff has been added successfully.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save staff.");
     }
   };
 
@@ -715,6 +723,108 @@ export function HrStaffPanel() {
             <button type="button" style={buttonStyle("#6b7280")} onClick={resetForm}>Reset Form</button>
           </div>
           {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
+          {success && <p style={{ color: "#16a34a", marginTop: 8 }}>{success}</p>}
+        </div>
+      </div></section>
+    </div>
+  );
+}
+
+export function HrStaffDirectoryPanel() {
+  const [rows, setRows] = useState<Staff[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [designations, setDesignations] = useState<Designation[]>([]);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const load = async () => {
+    try {
+      setError("");
+      const [roleData, departmentData, designationData, staffData] = await Promise.all([
+        apiGet<ApiList<Role>>("/api/v1/access-control/roles/"),
+        apiGet<ApiList<Department>>("/api/v1/hr/departments/"),
+        apiGet<ApiList<Designation>>("/api/v1/hr/designations/"),
+        apiGet<ApiList<Staff>>("/api/v1/hr/staff/"),
+      ]);
+      setRoles(listData(roleData));
+      setDepartments(listData(departmentData));
+      setDesignations(listData(designationData));
+      setRows(listData(staffData));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load staff directory.");
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  return (
+    <div className="legacy-panel">
+      {breadcrumb("Staff Directory")}
+      <section className="admin-visitor-area up_st_admin_visitor"><div className="container-fluid p-0">
+        <div className="white-box" style={boxStyle()}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h3 style={{ margin: 0 }}>Staff List</h3>
+            <button type="button" style={buttonStyle("#334155")} onClick={() => void load()}>Refresh</button>
+          </div>
+          {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
+          {success && <p style={{ color: "#16a34a", marginTop: 8 }}>{success}</p>}
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Staff No</th>
+                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Name</th>
+                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Role</th>
+                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Department</th>
+                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Designation</th>
+                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Phone</th>
+                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Status</th>
+                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 10, color: "var(--text-muted)" }}>No staff found.</td>
+                </tr>
+              ) : rows.map((row) => {
+                const roleName = roles.find((role) => role.id === row.role)?.name || "-";
+                const departmentName = departments.find((department) => department.id === row.department)?.name || "-";
+                const designationName = designations.find((designation) => designation.id === row.designation)?.name || "-";
+                const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ").trim();
+                return (
+                  <tr key={row.id}>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.staff_no || "-"}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{fullName || "-"}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{roleName}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{departmentName}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{designationName}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.phone || "-"}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)", textTransform: "capitalize" }}>{row.status || "-"}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                      <button
+                        type="button"
+                        style={buttonStyle("#dc2626")}
+                        onClick={() => {
+                          if (!window.confirm("Delete this staff member?")) return;
+                          void apiDelete(`/api/v1/hr/staff/${row.id}/`).then(() => {
+                            setSuccess("Staff has been deleted successfully.");
+                            return load();
+                          }).catch((err) => {
+                            setError(err instanceof Error ? err.message : "Unable to delete staff.");
+                          });
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div></section>
     </div>

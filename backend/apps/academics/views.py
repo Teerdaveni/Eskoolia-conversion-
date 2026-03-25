@@ -625,23 +625,37 @@ class LessonPlannerViewSet(TenantScopedModelViewSet):
     def teachers(self, request):
         user = request.user
         queryset = User.objects.filter(is_active=True, access_status=True)
+        school_id = None
         if not user.is_superuser:
             if not user.school_id:
                 return Response([])
-            queryset = queryset.filter(school_id=user.school_id)
+            school_id = user.school_id
 
-        # Collect teacher users from both role-mapping and HR staff profile mapping.
-        teacher_user_ids = set(
-            queryset.filter(user_roles__role__name__icontains="teacher").values_list("id", flat=True)
-        )
+        # Resolve teacher users from role mapping and staff directory (PHP-style source).
+        role_teacher_qs = queryset.filter(user_roles__role__name__icontains="teacher")
+        if school_id:
+            role_teacher_qs = role_teacher_qs.filter(Q(school_id=school_id) | Q(staff_profile__school_id=school_id))
+        teacher_user_ids = set(role_teacher_qs.values_list("id", flat=True))
 
-        staff_qs = Staff.objects.filter(status=Staff.STATUS_ACTIVE, user_id__isnull=False)
-        if not user.is_superuser:
-            staff_qs = staff_qs.filter(school_id=user.school_id)
-        staff_teacher_ids = staff_qs.filter(
+        staff_qs = Staff.objects.filter(status=Staff.STATUS_ACTIVE).filter(
             Q(role__name__icontains="teacher") | Q(designation__name__icontains="teacher")
-        ).values_list("user_id", flat=True)
-        teacher_user_ids.update(staff_teacher_ids)
+        )
+        if school_id:
+            staff_qs = staff_qs.filter(school_id=school_id)
+
+        for staff in staff_qs.only("id", "user_id", "email", "updated_at"):
+            if staff.user_id:
+                teacher_user_ids.add(staff.user_id)
+                continue
+
+            # Legacy fallback: auto-link teacher staff to an existing user by email.
+            if staff.email:
+                matched_user = queryset.filter(email__iexact=staff.email).first()
+                if matched_user:
+                    if not hasattr(matched_user, "staff_profile"):
+                        staff.user_id = matched_user.id
+                        staff.save(update_fields=["user", "updated_at"])
+                    teacher_user_ids.add(matched_user.id)
 
         if teacher_user_ids:
             queryset = queryset.filter(id__in=teacher_user_ids)
