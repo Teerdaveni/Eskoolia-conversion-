@@ -110,6 +110,21 @@ class Student(models.Model):
         blank=True,
         related_name="students",
     )
+    # Transport Module Fields
+    transport_route = models.ForeignKey(
+        "core.TransportRoute",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="students",
+    )
+    vehicle = models.ForeignKey(
+        "core.Vehicle",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="students",
+    )
     is_disabled = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

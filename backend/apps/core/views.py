@@ -1,5 +1,7 @@
 from rest_framework import permissions, viewsets
-from .models import AcademicYear, Class, ClassPeriod, ClassRoom, Section, Subject
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from .models import AcademicYear, Class, ClassPeriod, ClassRoom, Section, Subject, Vehicle, TransportRoute, AssignVehicle
+from .models import ItemCategory, ItemStore, Supplier, Item, ItemReceive, ItemIssue, ItemSell
 from .serializers import (
     AcademicYearSerializer,
     ClassPeriodSerializer,
@@ -7,6 +9,16 @@ from .serializers import (
     ClassSerializer,
     SectionSerializer,
     SubjectSerializer,
+    VehicleSerializer,
+    TransportRouteSerializer,
+    AssignVehicleSerializer,
+    ItemCategorySerializer,
+    ItemStoreSerializer,
+    SupplierSerializer,
+    ItemSerializer,
+    ItemReceiveSerializer,
+    ItemIssueSerializer,
+    ItemSellSerializer,
 )
 
 
@@ -85,3 +97,180 @@ class ClassRoomViewSet(TenantQueryMixin, viewsets.ModelViewSet):
     model = ClassRoom
     serializer_class = ClassRoomSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+
+# ===== TRANSPORT MODULE VIEWSETS =====
+class VehicleViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = Vehicle
+    serializer_class = VehicleSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.select_related("driver", "academic_year", "school")
+
+    def perform_create(self, serializer):
+        from rest_framework.exceptions import ValidationError
+        
+        school = self.request.user.school
+        if not school:
+            raise ValidationError({"school": "User does not have a school assigned."})
+        
+        # Try to get current academic year, fallback to latest one
+        academic_year = AcademicYear.objects.filter(school=school, is_current=True).first()
+        if not academic_year:
+            academic_year = AcademicYear.objects.filter(school=school).order_by("-start_date").first()
+        
+        if not academic_year:
+            raise ValidationError({"academic_year": "No academic year found for your school. Please create one first."})
+        
+        serializer.save(school=school, academic_year=academic_year)
+
+
+class TransportRouteViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = TransportRoute
+    serializer_class = TransportRouteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.select_related("academic_year", "school")
+
+    def perform_create(self, serializer):
+        from rest_framework.exceptions import ValidationError
+        
+        school = self.request.user.school
+        if not school:
+            raise ValidationError({"school": "User does not have a school assigned."})
+        
+        # Try to get current academic year, fallback to latest one
+        academic_year = AcademicYear.objects.filter(school=school, is_current=True).first()
+        if not academic_year:
+            academic_year = AcademicYear.objects.filter(school=school).order_by("-start_date").first()
+        
+        if not academic_year:
+            raise ValidationError({"academic_year": "No academic year found for your school. Please create one first."})
+        
+        serializer.save(school=school, academic_year=academic_year)
+
+
+class AssignVehicleViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = AssignVehicle
+    serializer_class = AssignVehicleSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.select_related("vehicle", "route", "academic_year", "school")
+
+    def perform_create(self, serializer):
+        from rest_framework.exceptions import ValidationError
+        
+        school = self.request.user.school
+        if not school:
+            raise ValidationError({"school": "User does not have a school assigned."})
+        
+        # Try to get current academic year, fallback to latest one
+        academic_year = AcademicYear.objects.filter(school=school, is_current=True).first()
+        if not academic_year:
+            academic_year = AcademicYear.objects.filter(school=school).order_by("-start_date").first()
+        
+        if not academic_year:
+            raise ValidationError({"academic_year": "No academic year found for your school. Please create one first."})
+        
+        serializer.save(school=school, academic_year=academic_year)
+
+
+# ===== INVENTORY MODULE VIEWSETS =====
+class ItemCategoryViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = ItemCategory
+    serializer_class = ItemCategorySerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.order_by("title")
+
+
+class ItemStoreViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = ItemStore
+    serializer_class = ItemStoreSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.order_by("title")
+
+
+class SupplierViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = Supplier
+    serializer_class = SupplierSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.order_by("name")
+
+
+class ItemViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = Item
+    serializer_class = ItemSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.select_related("category", "supplier").order_by("item_code")
+
+    def perform_create(self, serializer):
+        school = self.request.user.school
+        if not school:
+            raise PermissionDenied("School context is required.")
+        serializer.save(school=school)
+
+
+class ItemReceiveViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = ItemReceive
+    serializer_class = ItemReceiveSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.select_related("supplier", "created_by").order_by("-receive_date")
+
+    def perform_create(self, serializer):
+        school = self.request.user.school
+        if not school:
+            raise PermissionDenied("School context is required.")
+        serializer.save(school=school, created_by=self.request.user)
+
+
+class ItemIssueViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = ItemIssue
+    serializer_class = ItemIssueSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.select_related("store", "issued_by").order_by("-issue_date")
+
+    def perform_create(self, serializer):
+        school = self.request.user.school
+        if not school:
+            raise PermissionDenied("School context is required.")
+        serializer.save(school=school, issued_by=self.request.user)
+
+
+class ItemSellViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+    model = ItemSell
+    serializer_class = ItemSellSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.select_related("created_by").order_by("-sell_date")
+
+    def perform_create(self, serializer):
+        school = self.request.user.school
+        if not school:
+            raise PermissionDenied("School context is required.")
+        serializer.save(school=school, created_by=self.request.user)

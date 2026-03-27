@@ -67,6 +67,30 @@ class StaffViewSet(SchoolScopedModelViewSet):
     search_fields = ["staff_no", "first_name", "last_name", "email", "phone", "emergency_mobile", "location", "driving_license"]
     ordering_fields = ["first_name", "join_date", "created_at"]
 
+    def get_queryset(self):
+        """Return school staff members. Optionally filter by driver role for vehicle dropdown."""
+        from apps.access_control.models import Role
+        
+        queryset = super().get_queryset()
+        
+        # Only filter by driver role if explicitly requested via query parameter
+        drivers_only = self.request.query_params.get('drivers_only', '').lower() == 'true'
+        role_param = self.request.query_params.get('role')
+        
+        if drivers_only and not role_param:
+            # Filter to driver role for vehicle dropdown
+            try:
+                driver_role = Role.objects.filter(name__iexact='driver').first()
+                if driver_role:
+                    queryset = queryset.filter(role=driver_role)
+                else:
+                    # If driver role doesn't exist, return empty queryset
+                    queryset = queryset.none()
+            except Exception:
+                queryset = queryset.none()
+        
+        return queryset.order_by("first_name", "last_name")
+
     def _generate_username(self, staff):
         User = get_user_model()
 

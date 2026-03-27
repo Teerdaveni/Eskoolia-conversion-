@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "apps.hr",
     "apps.library",
     "apps.behaviour",
+    "apps.reports",
 ]
 
 MIDDLEWARE = [

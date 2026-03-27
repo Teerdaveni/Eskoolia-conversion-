@@ -115,6 +115,8 @@ class StudentMultiClassBulkSaveSerializer(serializers.Serializer):
 
 class StudentSerializer(serializers.ModelSerializer):
     documents = StudentDocumentSerializer(many=True, read_only=True)
+    transport_route_title = serializers.CharField(source="transport_route.title", read_only=True, allow_null=True)
+    vehicle_no = serializers.CharField(source="vehicle.vehicle_no", read_only=True, allow_null=True)
 
     class Meta:
         model = Student
@@ -134,10 +136,14 @@ class StudentSerializer(serializers.ModelSerializer):
             "current_class",
             "current_section",
             "admission_inquiry",
+            "transport_route",
+            "transport_route_title",
+            "vehicle",
+            "vehicle_no",
             "is_disabled",
             "is_active",
             "documents",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "school", "documents", "created_at", "updated_at"]
+        read_only_fields = ["id", "school", "documents", "transport_route_title", "vehicle_no", "created_at", "updated_at"]

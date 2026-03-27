@@ -98,11 +98,17 @@ export const sidebarMenu: SidebarItem[] = [
       { id: "marks-register", name: "Marks Register", route: "/exams/marks-register" },
       { id: "add-marks", name: "Add Marks", route: "/exams/marks-register-create" },
       { id: "result-publish", name: "Result Publish", route: "/exams/result-publish" },
-      { id: "student-mark-sheet", name: "Student Mark Sheet", route: "/exams/student-report" },
-      { id: "merit-list", name: "Merit List", route: "/exams/merit-report" },
-      { id: "online-exam", name: "Online Exam", route: "/exams/online-exam" },
-      { id: "admit-card", name: "Admit Card", route: "/exams/exam-plan/admit-card" },
-      { id: "seat-plan", name: "Seat Plan", route: "/exams/exam-plan/seat-plan" },
+    ],
+  },
+  {
+    id: "reports",
+    name: "Reports",
+    children: [
+      { id: "student-report", name: "Student Report", route: "/reports/student" },
+      { id: "exam-report", name: "Exam Report", route: "/reports/exam" },
+      { id: "staff-report", name: "Staff Report", route: "/reports/staff" },
+      { id: "fees-report", name: "Fees Report", route: "/reports/fees" },
+      { id: "accounts-report", name: "Accounts Report", route: "/reports/accounts" },
     ],
   },
   {
@@ -127,6 +133,17 @@ export const sidebarMenu: SidebarItem[] = [
       { id: "book-issues", name: "Book Issues", route: "/library/issues" },
     ],
   },
+  {
+    id: "transport",
+    name: "Transport",
+    children: [
+      { id: "vehicles", name: "Vehicles", route: "/transport/vehicles" },
+      { id: "transport-routes", name: "Routes", route: "/transport/routes" },
+      { id: "assign-vehicles", name: "Assign Vehicles", route: "/transport/assign-vehicles" },
+      { id: "student-transport-report", name: "Student Transport Report", route: "/transport/student-report" },
+    ],
+  },
+  { id: "inventory", name: "Inventory", route: "/inventory" },
   {
     id: "behaviour-records",
     name: "Behaviour Records",
