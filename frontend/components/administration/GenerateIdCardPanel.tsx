@@ -3,13 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiRequestWithRefresh } from "@/lib/api-auth";
 
-type Paginated<T> = { count?: number; next?: string | null; previous?: string | null; results?: T[] };
-type ApiList<T> = T[] | Paginated<T>;
-
 type RoleOption = { id: number; name: string };
 type IdCardTemplate = {
   id: number;
   title: string;
+  name?: string;
   page_layout_style: "horizontal" | "vertical";
   applicable_role_ids: number[];
   pl_width?: string | number | null;
@@ -30,6 +28,19 @@ type StudentRow = {
   gender?: string;
   current_class?: number | null;
   current_section?: number | null;
+  label?: string;
+};
+
+type GenerateSetupResponse = {
+  roles: RoleOption[];
+  classes: ClassRow[];
+  sections: SectionRow[];
+  templates: IdCardTemplate[];
+};
+
+type RecipientsResponse = {
+  is_student_role: boolean;
+  recipients: StudentRow[];
 };
 
 function fieldStyle() {
@@ -64,10 +75,6 @@ function boxStyle() {
   } as const;
 }
 
-function listData<T>(value: ApiList<T>): T[] {
-  return Array.isArray(value) ? value : value.results || [];
-}
-
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -81,6 +88,14 @@ function toText(value: unknown) {
   return value == null ? "" : String(value);
 }
 
+function templateLabel(template: IdCardTemplate) {
+  const raw = String(template.title || template.name || "").trim();
+  if (!raw || /^\d+$/.test(raw)) {
+    return `ID Card Template ${template.id}`;
+  }
+  return raw;
+}
+
 function mm(value: string | number | null | undefined, fallback: number) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -90,26 +105,13 @@ async function apiGet<T>(path: string): Promise<T> {
   return apiRequestWithRefresh<T>(path, { headers: { "Content-Type": "application/json" } });
 }
 
-async function fetchAllPages<T>(path: string, maxPages = 8): Promise<T[]> {
-  let page = 1;
-  let rows: T[] = [];
-  while (page <= maxPages) {
-    const joiner = path.includes("?") ? "&" : "?";
-    const data = await apiGet<ApiList<T>>(`${path}${joiner}page=${page}&page_size=100`);
-    if (Array.isArray(data)) return data;
-    rows = rows.concat(data.results || []);
-    if (!data.next) break;
-    page += 1;
-  }
-  return rows;
-}
-
 export function GenerateIdCardPanel() {
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const [templates, setTemplates] = useState<IdCardTemplate[]>([]);
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [sections, setSections] = useState<SectionRow[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
+  const [isStudentRoleResponse, setIsStudentRoleResponse] = useState(true);
 
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -128,7 +130,7 @@ export function GenerateIdCardPanel() {
 
   const isStudentRole = useMemo(() => {
     if (!selectedRole) return false;
-    return selectedRole.name.toLowerCase().includes("student");
+    return String(selectedRole.id) === "2" || selectedRole.name.toLowerCase().includes("student");
   }, [selectedRole]);
 
   const classNameById = useMemo(() => {
@@ -155,16 +157,11 @@ export function GenerateIdCardPanel() {
       try {
         setLoading(true);
         setError("");
-        const [roleData, templateData, classData, sectionData] = await Promise.all([
-          apiGet<ApiList<RoleOption>>("/api/v1/access-control/roles/?page_size=100"),
-          apiGet<ApiList<IdCardTemplate>>("/api/v1/admissions/id-card-templates/?page_size=100"),
-          apiGet<ApiList<ClassRow>>("/api/v1/core/classes/?page_size=100"),
-          apiGet<ApiList<SectionRow>>("/api/v1/core/sections/?page_size=200"),
-        ]);
-        setRoles(listData(roleData));
-        setTemplates(listData(templateData));
-        setClasses(listData(classData));
-        setSections(listData(sectionData));
+        const data = await apiGet<GenerateSetupResponse>("/api/v1/admissions/id-card-templates/generate-setup/");
+        setRoles(data.roles || []);
+        setTemplates(data.templates || []);
+        setClasses(data.classes || []);
+        setSections(data.sections || []);
       } catch {
         setError("Unable to load generate ID card data.");
       } finally {
@@ -183,23 +180,30 @@ export function GenerateIdCardPanel() {
   }, [classId]);
 
   const searchStudents = async () => {
+    if (!roleId) {
+      setError("Select a role first.");
+      return;
+    }
+
     try {
       setSearching(true);
       setError("");
       setSuccess("");
-      const allStudents = await fetchAllPages<StudentRow>("/api/v1/students/students/");
-      const rows = allStudents.filter((row) => {
-        if (isStudentRole && classId && String(row.current_class || "") !== classId) return false;
-        if (isStudentRole && sectionId && String(row.current_section || "") !== sectionId) return false;
-        return true;
-      });
-      setStudents(rows);
+
+      const params = new URLSearchParams();
+      params.set("role", roleId);
+      if (isStudentRole && classId) params.set("class", classId);
+      if (isStudentRole && sectionId) params.set("section", sectionId);
+
+      const data = await apiGet<RecipientsResponse>(`/api/v1/admissions/id-card-templates/recipients/?${params.toString()}`);
+      setStudents(data.recipients || []);
+      setIsStudentRoleResponse(!!data.is_student_role);
       setSelectedIds([]);
-      if (!rows.length) {
-        setSuccess("No students found for selected criteria.");
+      if (!(data.recipients || []).length) {
+        setSuccess(isStudentRole ? "No students found for selected criteria." : "No recipients found for selected role.");
       }
     } catch {
-      setError("Unable to load students.");
+      setError("Unable to load recipients.");
     } finally {
       setSearching(false);
     }
@@ -228,7 +232,7 @@ export function GenerateIdCardPanel() {
     }
     const targets = students.filter((s) => selectedIds.includes(s.id));
     if (!targets.length) {
-      setError("Please select at least one student.");
+      setError("Please select at least one recipient.");
       return;
     }
 
@@ -238,11 +242,12 @@ export function GenerateIdCardPanel() {
 
     const cardsHtml = targets
       .map((student) => {
-        const fullName = `${toText(student.first_name)} ${toText(student.last_name)}`.trim() || `Student #${student.id}`;
+        const fullName = `${toText(student.first_name)} ${toText(student.last_name)}`.trim() || "";
+        const displayName = toText(student.label || fullName).trim() || `User #${student.id}`;
         const className = classNameById.get(student.current_class || -1) || "-";
         const sectionName = sectionNameById.get(student.current_section || -1) || "-";
         const dob = student.date_of_birth ? toText(student.date_of_birth) : "-";
-        const initials = fullName
+        const initials = displayName
           .split(/\s+/)
           .filter(Boolean)
           .slice(0, 2)
@@ -253,12 +258,12 @@ export function GenerateIdCardPanel() {
           <div class="id-card" style="background-image:url('${escapeHtml(selectedTemplate.background_url || "")}')">
             ${selectedTemplate.logo_url ? `<img class="logo" src="${escapeHtml(selectedTemplate.logo_url)}" alt="logo" />` : ""}
             <div class="photo">${escapeHtml(initials)}</div>
-            <h4>${escapeHtml(fullName)}</h4>
-            <p><strong>Admission:</strong> ${escapeHtml(toText(student.admission_no || "-"))}</p>
-            <p><strong>Class:</strong> ${escapeHtml(className)} (${escapeHtml(sectionName)})</p>
-            <p><strong>Roll:</strong> ${escapeHtml(toText(student.roll_no || "-"))}</p>
-            <p><strong>Gender:</strong> ${escapeHtml(toText(student.gender || "-"))}</p>
-            <p><strong>DOB:</strong> ${escapeHtml(dob)}</p>
+            <h4>${escapeHtml(displayName)}</h4>
+            ${isStudentRoleResponse ? `<p><strong>Admission:</strong> ${escapeHtml(toText(student.admission_no || "-"))}</p>` : ""}
+            ${isStudentRoleResponse ? `<p><strong>Class:</strong> ${escapeHtml(className)} (${escapeHtml(sectionName)})</p>` : ""}
+            ${isStudentRoleResponse ? `<p><strong>Roll:</strong> ${escapeHtml(toText(student.roll_no || "-"))}</p>` : ""}
+            ${isStudentRoleResponse ? `<p><strong>Gender:</strong> ${escapeHtml(toText(student.gender || "-"))}</p>` : ""}
+            ${isStudentRoleResponse ? `<p><strong>DOB:</strong> ${escapeHtml(dob)}</p>` : ""}
             ${selectedTemplate.signature_url ? `<img class="sign" src="${escapeHtml(selectedTemplate.signature_url)}" alt="signature" />` : ""}
           </div>
         `;
@@ -351,40 +356,40 @@ export function GenerateIdCardPanel() {
           <div className="white-box" style={boxStyle()}>
             <h3 style={{ marginTop: 0 }}>Select Criteria</h3>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(140px, 1fr))", gap: 8 }}>
-              <select value={roleId} onChange={(e) => setRoleId(e.target.value)} style={fieldStyle()}>
+              <select aria-label="Role" title="Role" value={roleId} onChange={(e) => setRoleId(e.target.value)} style={fieldStyle()}>
                 <option value="">Select role *</option>
                 {roles.map((role) => (
                   <option key={role.id} value={role.id}>{role.name}</option>
                 ))}
               </select>
 
-              <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} style={fieldStyle()}>
+              <select aria-label="ID card template" title="ID card template" value={templateId} onChange={(e) => setTemplateId(e.target.value)} style={fieldStyle()}>
                 <option value="">Select ID card *</option>
                 {availableTemplates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.title}</option>
+                  <option key={t.id} value={t.id}>{templateLabel(t)}</option>
                 ))}
               </select>
 
               {isStudentRole ? (
-                <select value={classId} onChange={(e) => setClassId(e.target.value)} style={fieldStyle()}>
+                <select aria-label="Class" title="Class" value={classId} onChange={(e) => setClassId(e.target.value)} style={fieldStyle()}>
                   <option value="">Select class</option>
                   {classes.map((c) => (
                     <option key={c.id} value={c.id}>{c.class_name || c.name || `Class ${c.id}`}</option>
                   ))}
                 </select>
               ) : (
-                <input value="All classes" readOnly style={{ ...fieldStyle(), background: "#f9fafb" }} />
+                <input aria-label="Class" title="Class" value="All classes" readOnly style={{ ...fieldStyle(), background: "#f9fafb" }} />
               )}
 
               {isStudentRole ? (
-                <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={fieldStyle()}>
+                <select aria-label="Section" title="Section" value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={fieldStyle()}>
                   <option value="">Select section</option>
                   {filteredSections.map((s) => (
                     <option key={s.id} value={s.id}>{s.section_name || s.name || `Section ${s.id}`}</option>
                   ))}
                 </select>
               ) : (
-                <input value="All sections" readOnly style={{ ...fieldStyle(), background: "#f9fafb" }} />
+                <input aria-label="Section" title="Section" value="All sections" readOnly style={{ ...fieldStyle(), background: "#f9fafb" }} />
               )}
 
               <input type="number" min={0} value={gridGap} onChange={(e) => setGridGap(e.target.value)} placeholder="Grid gap (px)" style={fieldStyle()} />
@@ -400,7 +405,7 @@ export function GenerateIdCardPanel() {
 
           <div className="white-box" style={boxStyle()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <h3 style={{ margin: 0 }}>Student List</h3>
+              <h3 style={{ margin: 0 }}>{isStudentRoleResponse ? "Student List" : "Recipient List"}</h3>
               <label style={{ fontSize: 13, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 6 }}>
                 <input
                   type="checkbox"
@@ -416,18 +421,18 @@ export function GenerateIdCardPanel() {
                 <thead>
                   <tr>
                     <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Select</th>
-                    <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Admission</th>
+                    {isStudentRoleResponse ? <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Admission</th> : null}
                     <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Name</th>
-                    <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Class/Section</th>
-                    <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Gender</th>
-                    <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>DOB</th>
+                    {isStudentRoleResponse ? <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Class/Section</th> : null}
+                    {isStudentRoleResponse ? <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Gender</th> : null}
+                    {isStudentRoleResponse ? <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>DOB</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {!students.length ? (
                     <tr>
-                      <td colSpan={6} style={{ padding: 12, color: "var(--text-muted)" }}>
-                        {loading ? "Loading..." : "No students loaded. Click Search."}
+                      <td colSpan={isStudentRoleResponse ? 6 : 2} style={{ padding: 12, color: "var(--text-muted)" }}>
+                        {loading ? "Loading..." : "No recipients loaded. Click Search."}
                       </td>
                     </tr>
                   ) : (
@@ -435,18 +440,18 @@ export function GenerateIdCardPanel() {
                       const checked = selectedIds.includes(student.id);
                       const className = classNameById.get(student.current_class || -1) || "-";
                       const sectionName = sectionNameById.get(student.current_section || -1) || "-";
-                      const fullName = `${toText(student.first_name)} ${toText(student.last_name)}`.trim() || `Student #${student.id}`;
+                      const fullName = `${toText(student.first_name)} ${toText(student.last_name)}`.trim() || toText(student.label || `User #${student.id}`);
 
                       return (
                         <tr key={student.id}>
                           <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                            <input type="checkbox" checked={checked} onChange={(e) => toggleOne(student.id, e.target.checked)} />
+                            <input aria-label={`Select recipient ${student.id}`} title="Select recipient" type="checkbox" checked={checked} onChange={(e) => toggleOne(student.id, e.target.checked)} />
                           </td>
-                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{student.admission_no || "-"}</td>
+                          {isStudentRoleResponse ? <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{student.admission_no || "-"}</td> : null}
                           <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{fullName}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{className} ({sectionName})</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{student.gender || "-"}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{student.date_of_birth || "-"}</td>
+                          {isStudentRoleResponse ? <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{className} ({sectionName})</td> : null}
+                          {isStudentRoleResponse ? <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{student.gender || "-"}</td> : null}
+                          {isStudentRoleResponse ? <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{student.date_of_birth || "-"}</td> : null}
                         </tr>
                       );
                     })

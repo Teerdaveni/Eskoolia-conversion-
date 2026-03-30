@@ -5,6 +5,17 @@ import { apiRequestWithRefresh } from "@/lib/api-auth";
 
 type ApiList<T> = T[] | { results?: T[] };
 
+type AdminSetupRow = {
+  id: number;
+  type: "1" | "2" | "3" | "4";
+  name: string;
+};
+
+type SelectOption = {
+  value: string;
+  label: string;
+};
+
 type ComplaintRow = {
   id: number;
   complaint_by: string;
@@ -74,6 +85,8 @@ function buttonStyle(color = "var(--primary)") {
 
 export function ComplaintPanel() {
   const [items, setItems] = useState<ComplaintRow[]>([]);
+  const [complaintTypeOptions, setComplaintTypeOptions] = useState<SelectOption[]>([]);
+  const [complaintSourceOptions, setComplaintSourceOptions] = useState<SelectOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -97,8 +110,19 @@ export function ComplaintPanel() {
     try {
       setLoading(true);
       setError("");
-      const data = await apiGet<ApiList<ComplaintRow>>("/api/v1/admissions/complaints/");
-      setItems(listData(data));
+      const [complaintData, setupData] = await Promise.all([
+        apiGet<ApiList<ComplaintRow>>("/api/v1/admissions/complaints/"),
+        apiGet<ApiList<AdminSetupRow>>("/api/v1/admissions/admin-setups/"),
+      ]);
+      setItems(listData(complaintData));
+
+      const setups = listData(setupData);
+      setComplaintTypeOptions(
+        setups.filter((entry) => entry.type === "2").map((entry) => ({ value: String(entry.id), label: entry.name })),
+      );
+      setComplaintSourceOptions(
+        setups.filter((entry) => entry.type === "3").map((entry) => ({ value: String(entry.id), label: entry.name })),
+      );
     } catch {
       setError("Unable to load complaints.");
     } finally {
@@ -125,10 +149,13 @@ export function ComplaintPanel() {
   };
 
   const edit = (row: ComplaintRow) => {
+    const matchedType = complaintTypeOptions.find((option) => option.value === row.complaint_type || option.label === row.complaint_type);
+    const matchedSource = complaintSourceOptions.find((option) => option.value === row.complaint_source || option.label === row.complaint_source);
+
     setEditingId(row.id);
     setComplaintBy(row.complaint_by || "");
-    setComplaintType(row.complaint_type || "");
-    setComplaintSource(row.complaint_source || "");
+    setComplaintType(matchedType?.value || "");
+    setComplaintSource(matchedSource?.value || "");
     setPhone(row.phone || "");
     setDate(row.date || "");
     setActionTaken(row.action_taken || "");
@@ -226,14 +253,28 @@ export function ComplaintPanel() {
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Complaint" : "Add Complaint"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
                 <input value={complaintBy} onChange={(e) => setComplaintBy(e.target.value)} placeholder="Complaint By *" style={fieldStyle()} />
-                <input value={complaintType} onChange={(e) => setComplaintType(e.target.value)} placeholder="Complaint Type *" style={fieldStyle()} />
-                <input value={complaintSource} onChange={(e) => setComplaintSource(e.target.value)} placeholder="Complaint Source *" style={fieldStyle()} />
+                <select aria-label="Complaint Type" value={complaintType} onChange={(e) => setComplaintType(e.target.value)} style={fieldStyle()}>
+                  <option value="">Select Complaint Type *</option>
+                  {complaintTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <select aria-label="Complaint Source" value={complaintSource} onChange={(e) => setComplaintSource(e.target.value)} style={fieldStyle()}>
+                  <option value="">Select Complaint Source *</option>
+                  {complaintSourceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
                 <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" style={fieldStyle()} />
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
+                <input aria-label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
                 <input value={actionTaken} onChange={(e) => setActionTaken(e.target.value)} placeholder="Action Taken" style={fieldStyle()} />
                 <input value={assigned} onChange={(e) => setAssigned(e.target.value)} placeholder="Assigned" style={fieldStyle()} />
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" rows={3} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
-                <input type="file" onChange={(e) => setFileUpload(e.target.files?.[0] || null)} style={{ ...fieldStyle(), padding: 6 }} />
+                <input aria-label="Complaint Attachment" type="file" onChange={(e) => setFileUpload(e.target.files?.[0] || null)} style={{ ...fieldStyle(), padding: 6 }} />
                 {editingId && fileUrl ? <a href={fileUrl} target="_blank" rel="noreferrer" style={{ color: "var(--primary)", fontSize: 12 }}>View existing file</a> : null}
 
                 <div style={{ display: "flex", gap: 8 }}>

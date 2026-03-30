@@ -23,5 +23,7 @@ router.register("phone-call-logs", PhoneCallLogEntryViewSet, basename="phone-cal
 router.register("admin-setups", AdminSetupEntryViewSet, basename="admin-setup-entry")
 router.register("id-card-templates", IdCardTemplateViewSet, basename="id-card-template")
 router.register("certificate-templates", CertificateTemplateViewSet, basename="certificate-template")
+router.register("id-cards", IdCardTemplateViewSet, basename="id-card")
+router.register("certificates", CertificateTemplateViewSet, basename="certificate")
 
 urlpatterns = router.urls

@@ -226,6 +226,18 @@ class VisitorBookEntrySerializer(serializers.ModelSerializer):
             if queryset.exists():
                 raise serializers.ValidationError("Visitor already exists for the selected date and time")
 
+        # Prevent duplicate visitor_id within the same school
+        visitor_id = attrs.get("visitor_id", getattr(self.instance, "visitor_id", None))
+        if visitor_id:
+            school_id = self._current_school_id() or getattr(getattr(self.instance, "school", None), "id", None)
+            queryset = VisitorBookEntry.objects.filter(visitor_id=visitor_id)
+            if school_id:
+                queryset = queryset.filter(school_id=school_id)
+            if self.instance:
+                queryset = queryset.exclude(id=self.instance.id)
+            if queryset.exists():
+                raise serializers.ValidationError({"visitor_id": "Visitor ID already exists."})
+
         return super().validate(attrs)
 
     def get_file_url(self, obj):

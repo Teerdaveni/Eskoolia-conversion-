@@ -19,6 +19,16 @@ const TYPE_OPTIONS: Array<{ value: AdminSetupRow["type"]; label: string }> = [
   { value: "4", label: "Reference" },
 ];
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    const message = error.message.trim();
+    if (message && message !== "[object Object]") {
+      return message;
+    }
+  }
+  return fallback;
+}
+
 function listData<T>(value: ApiList<T>): T[] {
   return Array.isArray(value) ? value : value.results || [];
 }
@@ -93,8 +103,8 @@ export function AdminSetupPanel() {
       setError("");
       const data = await apiGet<ApiList<AdminSetupRow>>("/api/v1/admissions/admin-setups/");
       setItems(listData(data));
-    } catch {
-      setError("Unable to load admin setups.");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Unable to load admin setups."));
     } finally {
       setLoading(false);
     }
@@ -144,8 +154,8 @@ export function AdminSetupPanel() {
       }
       reset();
       await load();
-    } catch {
-      setError(editingId ? "Unable to update admin setup." : "Unable to save admin setup.");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, editingId ? "Unable to update admin setup." : "Unable to save admin setup."));
     } finally {
       setSaving(false);
     }
@@ -161,8 +171,8 @@ export function AdminSetupPanel() {
       await apiDelete(`/api/v1/admissions/admin-setups/${id}/`);
       setItems((prev) => prev.filter((row) => row.id !== id));
       setSuccess("Admin setup deleted.");
-    } catch {
-      setError("Unable to delete admin setup.");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Unable to delete admin setup."));
     } finally {
       setBusyId(null);
     }
@@ -202,7 +212,7 @@ export function AdminSetupPanel() {
             <div className="white-box" style={boxStyle()}>
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Admin Setup" : "Add Admin Setup"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
-                <select value={type} onChange={(e) => setType(e.target.value as AdminSetupRow["type"])} style={fieldStyle()}>
+                <select aria-label="Admin Setup Type" value={type} onChange={(e) => setType(e.target.value as AdminSetupRow["type"])} style={fieldStyle()}>
                   <option value="">Type *</option>
                   {TYPE_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>

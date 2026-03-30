@@ -5,7 +5,33 @@ Provides standardized error responses across the API.
 
 from rest_framework import status
 from rest_framework.response import Response
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, ValidationError as DRFValidationError
+
+
+def _first_error_message(detail):
+    if isinstance(detail, str):
+        return detail
+
+    if isinstance(detail, list):
+        for item in detail:
+            message = _first_error_message(item)
+            if message:
+                return message
+        return None
+
+    if isinstance(detail, dict):
+        non_field = detail.get("non_field_errors")
+        if non_field:
+            message = _first_error_message(non_field)
+            if message:
+                return message
+
+        for value in detail.values():
+            message = _first_error_message(value)
+            if message:
+                return message
+
+    return None
 
 
 def custom_exception_handler(exc, context):
@@ -20,6 +46,11 @@ def custom_exception_handler(exc, context):
         Response with standardized error format
     """
     
+    # Return a clean validation message with no nested non_field_errors structure.
+    if isinstance(exc, DRFValidationError):
+        message = _first_error_message(exc.detail) or "Validation failed"
+        return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+
     # Handle our custom API exceptions
     if isinstance(exc, APIException):
         if hasattr(exc, 'get_response_data'):
