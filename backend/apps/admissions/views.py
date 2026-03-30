@@ -1,5 +1,5 @@
 from django.db import IntegrityError, transaction
-from rest_framework import permissions, status, viewsets
+from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -637,3 +637,33 @@ class CertificateTemplateViewSet(AdminSectionRBACMixin, DuplicateSafeWriteMixin,
             rows.append({"id": row.user_id, "label": full_name or row.user.username})
 
         return Response({"is_student_role": False, "recipients": rows}, status=status.HTTP_200_OK)
+
+
+class CertificateReadOnlyViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Read-only API for listing and retrieving certificates."""
+    serializer_class = CertificateTemplateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = CertificateTemplate.objects.select_related("school", "created_by")
+        if user.is_superuser:
+            return qs
+        if user.school_id:
+            return qs.filter(school_id=user.school_id)
+        return qs.none()
+
+
+class IdCardReadOnlyViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Read-only API for listing and retrieving ID card templates."""
+    serializer_class = IdCardTemplateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = IdCardTemplate.objects.select_related("school", "created_by")
+        if user.is_superuser:
+            return qs
+        if user.school_id:
+            return qs.filter(school_id=user.school_id)
+        return qs.none()
