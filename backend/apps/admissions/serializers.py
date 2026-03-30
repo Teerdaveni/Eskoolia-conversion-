@@ -557,11 +557,18 @@ class AdminSetupEntrySerializer(serializers.ModelSerializer):
             attrs["name"] = raw_name
 
         if setup_type and raw_name and school_id:
-            duplicate_qs = AdminSetupEntry.objects.filter(school_id=school_id, type=setup_type, name__iexact=raw_name)
+            # Check for duplicates: both case-insensitive and exact match
+            duplicate_qs = AdminSetupEntry.objects.filter(
+                school_id=school_id, 
+                type=setup_type, 
+                name__iexact=raw_name
+            )
             if self.instance:
                 duplicate_qs = duplicate_qs.exclude(id=self.instance.id)
             if duplicate_qs.exists():
-                raise serializers.ValidationError("Admin setup entry already exists for selected type and name")
+                raise serializers.ValidationError(
+                    {"name": f"An entry with this name already exists for type '{setup_type}'."}
+                )
 
         return super().validate(attrs)
 
