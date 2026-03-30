@@ -55,6 +55,10 @@ class AdmissionInquiry(models.Model):
     status = models.CharField(max_length=32, choices=INQUIRY_STATUS_CHOICES, default="new")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+        def __str__(self):
+            return self.title
+    def __str__(self):
+        return self.title
 
     class Meta:
         db_table = "admission_inquiries"
