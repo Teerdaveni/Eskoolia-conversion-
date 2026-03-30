@@ -1,6 +1,122 @@
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuthTokens, getAccessToken, getRefreshToken, setAuthTokens } from "@/lib/auth";
 
+const GENERIC_ERROR_MESSAGES = new Set([
+  "invalid",
+  "error",
+  "validation failed",
+  "bad request",
+  "request failed",
+]);
+
+function cleanMessage(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (GENERIC_ERROR_MESSAGES.has(trimmed.toLowerCase())) {
+    return null;
+  }
+  return trimmed;
+}
+
+function firstErrorMessage(value: unknown): string | null {
+  if (typeof value === "string") {
+    return cleanMessage(value);
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const message = firstErrorMessage(item);
+      if (message) {
+        return message;
+      }
+    }
+    return null;
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      const message = firstErrorMessage(record[key]);
+      if (message) {
+        return message;
+      }
+    }
+  }
+
+  return null;
+}
+
+function formatFieldName(fieldName: string): string {
+  return fieldName
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function extractFieldMessage(details: unknown): string | null {
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return null;
+  }
+
+  const payload = details as Record<string, unknown>;
+  for (const [field, value] of Object.entries(payload)) {
+    const message = firstErrorMessage(value);
+    if (!message) {
+      continue;
+    }
+    if (field === "non_field_errors") {
+      return message;
+    }
+    return `${formatFieldName(field)} ${message}`;
+  }
+
+  return null;
+}
+
+function extractApiErrorMessage(body: unknown, status: number): string {
+  if (body && typeof body === "object") {
+    const payload = body as Record<string, unknown>;
+
+    const fromErrorDetails = extractFieldMessage((payload.error as Record<string, unknown> | undefined)?.details);
+    if (fromErrorDetails) {
+      return fromErrorDetails;
+    }
+
+    const fromErrorMessage = firstErrorMessage((payload.error as Record<string, unknown> | undefined)?.message);
+    if (fromErrorMessage) {
+      return fromErrorMessage;
+    }
+
+    const fromMessage = firstErrorMessage(payload.message);
+    if (fromMessage) {
+      return fromMessage;
+    }
+
+    const fromDetail = firstErrorMessage(payload.detail);
+    if (fromDetail) {
+      return fromDetail;
+    }
+
+    const fromNonField = firstErrorMessage(payload.non_field_errors);
+    if (fromNonField) {
+      return fromNonField;
+    }
+
+    const fromDetails = extractFieldMessage(payload.details);
+    if (fromDetails) {
+      return fromDetails;
+    }
+
+    const fromAnyField = firstErrorMessage(payload);
+    if (fromAnyField) {
+      return fromAnyField;
+    }
+  }
+
+  return `Request failed with status ${status}`;
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   const refresh = getRefreshToken();
   if (!refresh) return null;
@@ -73,7 +189,7 @@ export async function apiRequestWithRefresh<T>(path: string, options?: RequestIn
         window.location.href = "/login";
       }
     }
-    throw new Error(body?.message || body?.detail || String(response.status));
+    throw new Error(extractApiErrorMessage(body, response.status));
   }
 
   if (response.status === 204) {

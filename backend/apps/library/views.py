@@ -11,6 +11,24 @@ from .serializers import BookCategorySerializer, BookIssueSerializer, BookSerial
 
 class SchoolScopedModelViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {}
+
+    def get_required_permission_code(self):
+        action = getattr(self, "action", None)
+        if action and action in self.permission_codes:
+            return self.permission_codes[action]
+        return self.permission_codes.get("*")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        code = self.get_required_permission_code()
+        if not code:
+            return
+        user = request.user
+        if user.is_superuser:
+            return
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -35,6 +53,7 @@ class BookCategoryViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["is_active"]
     search_fields = ["name", "description"]
     ordering_fields = ["name", "created_at"]
+    permission_codes = {"*": "library.book_categories.view"}
 
 
 class BookViewSet(SchoolScopedModelViewSet):
@@ -43,6 +62,7 @@ class BookViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["category", "rack"]
     search_fields = ["title", "author", "isbn", "publisher"]
     ordering_fields = ["title", "available_quantity", "created_at"]
+    permission_codes = {"*": "library.books.view"}
 
 
 class LibraryMemberViewSet(SchoolScopedModelViewSet):
@@ -51,6 +71,7 @@ class LibraryMemberViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["member_type", "is_active"]
     search_fields = ["card_no", "student__first_name", "student__last_name", "staff__first_name", "staff__last_name"]
     ordering_fields = ["created_at", "card_no"]
+    permission_codes = {"*": "library.library_members.view"}
 
 
 class BookIssueViewSet(SchoolScopedModelViewSet):
@@ -59,6 +80,11 @@ class BookIssueViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["book", "member", "status", "issue_date", "due_date"]
     search_fields = ["book__title", "member__card_no"]
     ordering_fields = ["issue_date", "due_date", "created_at"]
+    permission_codes = {
+        "*": "library.book_issues.view",
+        "mark_returned": "library.book_issues.view",
+        "overdue": "library.book_issues.view",
+    }
 
     @transaction.atomic
     def perform_create(self, serializer):

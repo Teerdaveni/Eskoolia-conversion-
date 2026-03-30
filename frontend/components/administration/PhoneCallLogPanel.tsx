@@ -78,6 +78,7 @@ export function PhoneCallLogPanel() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ phone?: string }>({});
   const [search, setSearch] = useState("");
 
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -116,6 +117,7 @@ export function PhoneCallLogPanel() {
     setCallDuration("");
     setDescription("");
     setCallType("I");
+    setFieldErrors({});
   };
 
   const edit = (row: PhoneCallRow) => {
@@ -127,12 +129,20 @@ export function PhoneCallLogPanel() {
     setCallDuration(row.call_duration || "");
     setDescription(row.description || "");
     setCallType((row.call_type || "I") as "I" | "O");
+    setFieldErrors({});
   };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
 
+    const nextErrors: { phone?: string } = {};
     if (!phone.trim()) {
+      nextErrors.phone = "Phone is required.";
+    } else if (!/^\+?[0-9\s().-]+$/.test(phone.trim())) {
+      nextErrors.phone = "Enter a valid phone number.";
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
       setError("Phone is required.");
       return;
     }
@@ -151,6 +161,7 @@ export function PhoneCallLogPanel() {
       setSaving(true);
       setError("");
       setSuccess("");
+      setFieldErrors({});
       if (editingId) {
         await apiMutate(`/api/v1/admissions/phone-call-logs/${editingId}/`, "PATCH", payload);
         setSuccess("Phone call updated successfully.");
@@ -219,7 +230,16 @@ export function PhoneCallLogPanel() {
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Phone Call" : "Add Phone Call"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" style={fieldStyle()} />
-                <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone *" style={fieldStyle()} />
+                <input
+                  value={phone}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    if (fieldErrors.phone) setFieldErrors({});
+                  }}
+                  placeholder="Phone *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.phone ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.phone ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.phone}</span> : null}
                 <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
                 <input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} style={fieldStyle()} />
                 <input value={callDuration} onChange={(e) => setCallDuration(e.target.value)} placeholder="Call Duration" style={fieldStyle()} />

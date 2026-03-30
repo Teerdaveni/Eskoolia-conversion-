@@ -170,7 +170,7 @@ export function GenerateCertificatePanel() {
 
   const isStudentRole = useMemo(() => {
     if (!selectedRole) return false;
-    return selectedRole.name.toLowerCase().includes("student");
+    return String(selectedRole.id) === "2" || selectedRole.name.toLowerCase().includes("student");
   }, [selectedRole]);
 
   const classNameById = useMemo(() => {

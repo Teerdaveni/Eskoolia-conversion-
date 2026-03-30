@@ -19,6 +19,16 @@ type VisitorRow = {
   created_by_name?: string | null;
 };
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    const message = error.message.trim();
+    if (message && message !== "[object Object]") {
+      return message;
+    }
+  }
+  return fallback;
+}
+
 function listData<T>(value: ApiList<T>): T[] {
   return Array.isArray(value) ? value : value.results || [];
 }
@@ -96,13 +106,13 @@ export function VisitorBookPanel() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const [purpose, setPurpose] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [visitorId, setVisitorId] = useState("");
   const [noOfPerson, setNoOfPerson] = useState("1");
   const [date, setDate] = useState("");
   const [inTime, setInTime] = useState("");
@@ -117,8 +127,8 @@ export function VisitorBookPanel() {
       setError("");
       const data = await apiGet<ApiList<VisitorRow>>("/api/v1/admissions/visitors/");
       setItems(listData(data));
-    } catch {
-      setError("Unable to load visitor book records.");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Unable to load visitor book records."));
     } finally {
       setLoading(false);
     }
@@ -135,12 +145,12 @@ export function VisitorBookPanel() {
     setPurpose("");
     setName("");
     setPhone("");
-    setVisitorId("");
     setNoOfPerson("1");
     setInTime("");
     setOutTime("");
     setFileUrl("");
     setFileUpload(null);
+    setFieldErrors({});
   };
 
   const editRow = (row: VisitorRow) => {
@@ -148,19 +158,33 @@ export function VisitorBookPanel() {
     setPurpose(row.purpose || "");
     setName(row.name || "");
     setPhone(row.phone || "");
-    setVisitorId(row.visitor_id || "");
     setNoOfPerson(String(row.no_of_person || 1));
     setDate(row.date || "");
     setInTime(row.in_time || "");
     setOutTime(row.out_time || "");
     setFileUrl(row.file_url || "");
+    setFieldErrors({});
   };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
 
-    if (!purpose.trim() || !name.trim() || !visitorId.trim() || !date || !inTime.trim() || !outTime.trim()) {
-      setError("Purpose, name, ID, date, in time and out time are required.");
+    const nextErrors: Record<string, string> = {};
+    if (!purpose.trim()) nextErrors.purpose = "Purpose is required.";
+    if (!name.trim()) nextErrors.name = "Name is required.";
+    if (!date) nextErrors.date = "Date is required.";
+    if (!inTime.trim()) nextErrors.inTime = "In time is required.";
+    if (!outTime.trim()) nextErrors.outTime = "Out time is required.";
+    if (phone.trim() && !/^\+?[0-9\s().-]+$/.test(phone.trim())) {
+      nextErrors.phone = "Enter a valid phone number.";
+    }
+    if (inTime.trim() && outTime.trim() && outTime.trim() < inTime.trim()) {
+      nextErrors.outTime = "Out time must be later than or equal to in time.";
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      setError("Purpose, name, date, in time and out time are required.");
       return;
     }
 
@@ -168,7 +192,6 @@ export function VisitorBookPanel() {
     formData.append("purpose", purpose.trim());
     formData.append("name", name.trim());
     formData.append("phone", phone.trim());
-    formData.append("visitor_id", visitorId.trim());
     formData.append("no_of_person", String(Number(noOfPerson) || 1));
     formData.append("date", date);
     formData.append("in_time", inTime.trim());
@@ -181,6 +204,7 @@ export function VisitorBookPanel() {
       setSaving(true);
       setError("");
       setSuccess("");
+      setFieldErrors({});
 
       if (editingId) {
         await apiForm(`/api/v1/admissions/visitors/${editingId}/`, "PATCH", formData);
@@ -192,8 +216,8 @@ export function VisitorBookPanel() {
 
       resetForm();
       await load();
-    } catch {
-      setError(editingId ? "Unable to update visitor." : "Unable to add visitor.");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, editingId ? "Unable to update visitor." : "Unable to add visitor."));
     } finally {
       setSaving(false);
     }
@@ -212,8 +236,8 @@ export function VisitorBookPanel() {
       await apiDelete(`/api/v1/admissions/visitors/${id}/`);
       setItems((prev) => prev.filter((row) => row.id !== id));
       setSuccess("Visitor record deleted.");
-    } catch {
-      setError("Unable to delete visitor record.");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Unable to delete visitor record."));
     } finally {
       setBusyId(null);
     }
@@ -255,14 +279,67 @@ export function VisitorBookPanel() {
             <div className="white-box" style={boxStyle()}>
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Visitor" : "Add Visitor"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
-                <input value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Purpose *" style={fieldStyle()} />
-                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name *" style={fieldStyle()} />
-                <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" style={fieldStyle()} />
-                <input value={visitorId} onChange={(e) => setVisitorId(e.target.value)} placeholder="ID *" style={fieldStyle()} />
+                <input
+                  value={purpose}
+                  onChange={(e) => {
+                    setPurpose(e.target.value);
+                    if (fieldErrors.purpose) setFieldErrors((prev) => ({ ...prev, purpose: "" }));
+                  }}
+                  placeholder="Purpose *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.purpose ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.purpose ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.purpose}</span> : null}
+                <input
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (fieldErrors.name) setFieldErrors((prev) => ({ ...prev, name: "" }));
+                  }}
+                  placeholder="Name *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.name ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.name ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.name}</span> : null}
+                <input
+                  value={phone}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    if (fieldErrors.phone) setFieldErrors((prev) => ({ ...prev, phone: "" }));
+                  }}
+                  placeholder="Phone"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.phone ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.phone ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.phone}</span> : null}
                 <input type="number" min={1} value={noOfPerson} onChange={(e) => setNoOfPerson(e.target.value)} placeholder="No of Person *" style={fieldStyle()} />
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
-                <input value={inTime} onChange={(e) => setInTime(e.target.value)} placeholder="In Time *" style={fieldStyle()} />
-                <input value={outTime} onChange={(e) => setOutTime(e.target.value)} placeholder="Out Time *" style={fieldStyle()} />
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => {
+                    setDate(e.target.value);
+                    if (fieldErrors.date) setFieldErrors((prev) => ({ ...prev, date: "" }));
+                  }}
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.date ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.date ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.date}</span> : null}
+                <input
+                  value={inTime}
+                  onChange={(e) => {
+                    setInTime(e.target.value);
+                    if (fieldErrors.inTime) setFieldErrors((prev) => ({ ...prev, inTime: "" }));
+                  }}
+                  placeholder="In Time *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.inTime ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.inTime ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.inTime}</span> : null}
+                <input
+                  value={outTime}
+                  onChange={(e) => {
+                    setOutTime(e.target.value);
+                    if (fieldErrors.outTime) setFieldErrors((prev) => ({ ...prev, outTime: "" }));
+                  }}
+                  placeholder="Out Time *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.outTime ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.outTime ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.outTime}</span> : null}
                 <input type="file" onChange={(e) => setFileUpload(e.target.files?.[0] || null)} style={{ ...fieldStyle(), padding: 6 }} />
                 {editingId && fileUrl ? (
                   <a href={fileUrl} target="_blank" rel="noreferrer" style={{ color: "var(--primary)", fontSize: 12 }}>

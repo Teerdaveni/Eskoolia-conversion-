@@ -107,6 +107,11 @@ PERMISSIONS = [
 
     ("settings_section.general_settings.view", "General Settings", "settings_section"),
     ("settings_section.class_periods.view", "Class Periods", "settings_section"),
+
+    ("behaviour.incident.view", "Behaviour Incident", "behaviour"),
+    ("behaviour.assigned_incident.view", "Behaviour Assigned Incident", "behaviour"),
+    ("behaviour.assigned_incident_comment.view", "Behaviour Assigned Incident Comment", "behaviour"),
+    ("behaviour.record_setting.view", "Behaviour Record Setting", "behaviour"),
 ]
 
 

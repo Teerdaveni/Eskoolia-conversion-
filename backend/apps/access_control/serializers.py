@@ -1,3 +1,5 @@
+import re
+
 from rest_framework import serializers
 from .models import Permission, Role, UserRole
 
@@ -18,6 +20,23 @@ class RoleSerializer(serializers.ModelSerializer):
         model = Role
         fields = ["id", "school", "name", "is_system", "permission_ids", "created_at", "updated_at"]
         read_only_fields = ["id", "school", "created_at", "updated_at"]
+
+    def validate_name(self, value):
+        normalized = (value or "").strip()
+        if not normalized:
+            raise serializers.ValidationError("This field may not be blank.")
+        if not re.fullmatch(r"[A-Za-z0-9 ]+", normalized):
+            raise serializers.ValidationError("Role name can contain only letters, numbers, and spaces.")
+
+        request = self.context.get("request")
+        school = getattr(getattr(request, "user", None), "school", None)
+        duplicate_qs = Role.objects.filter(school=school, name__iexact=normalized)
+        if self.instance:
+            duplicate_qs = duplicate_qs.exclude(pk=self.instance.pk)
+        if duplicate_qs.exists():
+            raise serializers.ValidationError("Role with this name already exists.")
+
+        return normalized
 
     def create(self, validated_data):
         permissions = validated_data.pop("permissions", [])

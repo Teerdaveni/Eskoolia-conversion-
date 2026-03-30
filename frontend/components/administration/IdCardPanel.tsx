@@ -82,6 +82,7 @@ export function IdCardPanel() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
 
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -134,6 +135,7 @@ export function IdCardPanel() {
     setProfileUrl("");
     setLogoUrl("");
     setSignatureUrl("");
+    setFieldErrors({});
   };
 
   const edit = (row: IdCardRow) => {
@@ -149,6 +151,7 @@ export function IdCardPanel() {
     setProfileUrl(row.profile_url || "");
     setLogoUrl(row.logo_url || "");
     setSignatureUrl(row.signature_url || "");
+    setFieldErrors({});
   };
 
   const parseRoleIds = () => selectedRoleIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0);
@@ -160,6 +163,7 @@ export function IdCardPanel() {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!title.trim()) {
+      setFieldErrors({ title: "ID card title is required." });
       setError("ID card title is required.");
       return;
     }
@@ -178,6 +182,7 @@ export function IdCardPanel() {
       setSaving(true);
       setError("");
       setSuccess("");
+      setFieldErrors({});
       if (editingId) {
         await apiForm(`/api/v1/admissions/id-card-templates/${editingId}/`, "PATCH", formData);
         setSuccess("ID card updated successfully.");
@@ -240,7 +245,16 @@ export function IdCardPanel() {
             <div className="white-box" style={boxStyle()}>
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit ID Card" : "Create ID Card"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
-                <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="ID Card Title *" style={fieldStyle()} />
+                <input
+                  value={title}
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    if (fieldErrors.title) setFieldErrors({});
+                  }}
+                  placeholder="ID Card Title *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.title ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.title ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.title}</span> : null}
                 <select value={layout} onChange={(e) => setLayout(e.target.value as "horizontal" | "vertical")} style={fieldStyle()}>
                   <option value="horizontal">Horizontal</option>
                   <option value="vertical">Vertical</option>

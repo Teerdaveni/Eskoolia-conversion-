@@ -23,6 +23,24 @@ from .serializers import (
 
 class SchoolScopedModelViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {}
+
+    def get_required_permission_code(self):
+        action = getattr(self, "action", None)
+        if action and action in self.permission_codes:
+            return self.permission_codes[action]
+        return self.permission_codes.get("*")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        code = self.get_required_permission_code()
+        if not code:
+            return
+        user = request.user
+        if user.is_superuser:
+            return
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -47,6 +65,7 @@ class IncidentViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["title", "point"]
     search_fields = ["title", "description"]
     ordering_fields = ["title", "point", "created_at"]
+    permission_codes = {"*": "behaviour.incident.view"}
 
 
 class AssignedIncidentViewSet(SchoolScopedModelViewSet):
@@ -62,6 +81,15 @@ class AssignedIncidentViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["academic_year", "incident", "student"]
     search_fields = ["student__first_name", "student__last_name", "student__admission_no", "incident__title"]
     ordering_fields = ["created_at", "point"]
+    permission_codes = {
+        "*": "behaviour.assigned_incident.view",
+        "assign_bulk": "behaviour.assigned_incident.view",
+        "student_incident_report": "behaviour.assigned_incident.view",
+        "students_summary": "behaviour.assigned_incident.view",
+        "student_rank_report": "behaviour.assigned_incident.view",
+        "class_section_rank_report": "behaviour.assigned_incident.view",
+        "incident_wise_report": "behaviour.assigned_incident.view",
+    }
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -373,6 +401,7 @@ class AssignedIncidentCommentViewSet(SchoolScopedModelViewSet):
     queryset = AssignedIncidentComment.objects.select_related("school", "assigned_incident", "user").all()
     serializer_class = AssignedIncidentCommentSerializer
     filterset_fields = ["assigned_incident"]
+    permission_codes = {"*": "behaviour.assigned_incident_comment.view"}
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -389,6 +418,15 @@ class AssignedIncidentCommentViewSet(SchoolScopedModelViewSet):
 
 class BehaviourRecordSettingAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        user = request.user
+        if user.is_superuser:
+            return
+        code = "behaviour.record_setting.view"
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
 
     def _get_school(self, request):
         school = request.user.school or getattr(request, "school", None)

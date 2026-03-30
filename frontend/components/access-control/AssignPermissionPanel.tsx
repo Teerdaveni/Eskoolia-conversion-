@@ -21,6 +21,7 @@ type PermissionNode = {
 
 type ModuleNode = {
   module: string;
+  module_name?: string;
   permissions: PermissionNode[];
 };
 
@@ -117,7 +118,7 @@ export function AssignPermissionPanel() {
     setError("");
     try {
       const payload = await apiRequestWithRefresh<PermissionTreeResponse>(
-        `/api/v1/access-control/roles/permission-tree/?role=${selectedRoleId}`,
+        `/api/v1/access-control/roles/${selectedRoleId}/permission-tree/`,
       );
       const rows = payload.modules || [];
       setModules(rows);
@@ -329,7 +330,7 @@ export function AssignPermissionPanel() {
                   fontWeight: 600,
                 }}
               >
-                <span>{prettyModuleName(moduleRow.module)}</span>
+                <span>{moduleRow.module_name || prettyModuleName(moduleRow.module)}</span>
                 <span style={{ fontSize: 20, lineHeight: 1 }}>{expanded ? "-" : "+"}</span>
               </button>
 

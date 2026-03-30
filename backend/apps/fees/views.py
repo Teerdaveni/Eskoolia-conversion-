@@ -14,6 +14,24 @@ from .serializers import FeesAssignmentSerializer, FeesGroupSerializer, FeesPaym
 
 class SchoolScopedModelViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {}
+
+    def get_required_permission_code(self):
+        action = getattr(self, "action", None)
+        if action and action in self.permission_codes:
+            return self.permission_codes[action]
+        return self.permission_codes.get("*")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        code = self.get_required_permission_code()
+        if not code:
+            return
+        user = request.user
+        if user.is_superuser:
+            return
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -38,6 +56,7 @@ class FeesGroupViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["academic_year", "is_active"]
     search_fields = ["name", "description"]
     ordering_fields = ["name", "created_at", "updated_at"]
+    permission_codes = {"*": "fees.fees_group.view"}
 
 
 class FeesTypeViewSet(SchoolScopedModelViewSet):
@@ -46,6 +65,7 @@ class FeesTypeViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["academic_year", "fees_group", "is_active"]
     search_fields = ["name", "description"]
     ordering_fields = ["name", "amount", "created_at"]
+    permission_codes = {"*": "fees.fees_type.view"}
 
 
 class FeesAssignmentViewSet(SchoolScopedModelViewSet):
@@ -54,6 +74,17 @@ class FeesAssignmentViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["academic_year", "student", "fees_type", "status", "due_date"]
     search_fields = ["student__first_name", "student__last_name", "student__admission_no", "fees_type__name"]
     ordering_fields = ["due_date", "created_at", "amount"]
+    permission_codes = {
+        "list": "fees.fees_due.view",
+        "retrieve": "fees.fees_due.view",
+        "summary": "fees.fees_due.view",
+        "overdue": "fees.fees_due.view",
+        "create": "fees.fees_master.view",
+        "update": "fees.fees_master.view",
+        "partial_update": "fees.fees_master.view",
+        "destroy": "fees.fees_master.view",
+        "carry_forward": "fees.fees_carry_forward.view",
+    }
 
     @action(detail=False, methods=["get"], url_path="summary")
     def summary(self, request):
@@ -168,6 +199,10 @@ class FeesPaymentViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["student", "method", "paid_at"]
     search_fields = ["transaction_reference", "student__first_name", "student__last_name", "student__admission_no"]
     ordering_fields = ["paid_at", "created_at", "amount_paid"]
+    permission_codes = {
+        "*": "fees.fees_collection.view",
+        "receipt": "fees.fees_collection.view",
+    }
 
     @transaction.atomic
     def perform_create(self, serializer):

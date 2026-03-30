@@ -6,6 +6,8 @@ from apps.users.views import HealthView
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", HealthView.as_view(), name="health-check"),
+    # Legacy compatibility endpoints expected by older UAT documents.
+    path("admissions/", include("apps.admissions.urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/v1/auth/", include("apps.users.urls")),

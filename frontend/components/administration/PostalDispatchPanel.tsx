@@ -77,6 +77,7 @@ export function PostalDispatchPanel() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
 
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -116,6 +117,7 @@ export function PostalDispatchPanel() {
     setToTitle("");
     setFileUpload(null);
     setFileUrl("");
+    setFieldErrors({});
   };
 
   const edit = (row: PostalDispatchRow) => {
@@ -128,12 +130,19 @@ export function PostalDispatchPanel() {
     setDate(row.date || "");
     setFileUpload(null);
     setFileUrl(row.file_url || "");
+    setFieldErrors({});
   };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
 
-    if (!fromTitle.trim() || !referenceNo.trim() || !address.trim() || !toTitle.trim()) {
+    const nextErrors: Record<string, string> = {};
+    if (!toTitle.trim()) nextErrors.toTitle = "To title is required.";
+    if (!referenceNo.trim()) nextErrors.referenceNo = "Reference number is required.";
+    if (!address.trim()) nextErrors.address = "Address is required.";
+    if (!fromTitle.trim()) nextErrors.fromTitle = "From title is required.";
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
       setError("To title, reference no, address and from title are required.");
       return;
     }
@@ -151,6 +160,7 @@ export function PostalDispatchPanel() {
       setSaving(true);
       setError("");
       setSuccess("");
+      setFieldErrors({});
       if (editingId) {
         await apiForm(`/api/v1/admissions/postal-dispatch/${editingId}/`, "PATCH", formData);
         setSuccess("Postal dispatch updated successfully.");
@@ -215,11 +225,47 @@ export function PostalDispatchPanel() {
             <div className="white-box" style={boxStyle()}>
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Postal Dispatch" : "Add Postal Dispatch"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
-                <input value={toTitle} onChange={(e) => setToTitle(e.target.value)} placeholder="To Title *" style={fieldStyle()} />
-                <input value={referenceNo} onChange={(e) => setReferenceNo(e.target.value)} placeholder="Reference No *" style={fieldStyle()} />
-                <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address *" style={fieldStyle()} />
+                <input
+                  value={toTitle}
+                  onChange={(e) => {
+                    setToTitle(e.target.value);
+                    if (fieldErrors.toTitle) setFieldErrors((prev) => ({ ...prev, toTitle: "" }));
+                  }}
+                  placeholder="To Title *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.toTitle ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.toTitle ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.toTitle}</span> : null}
+                <input
+                  value={referenceNo}
+                  onChange={(e) => {
+                    setReferenceNo(e.target.value);
+                    if (fieldErrors.referenceNo) setFieldErrors((prev) => ({ ...prev, referenceNo: "" }));
+                  }}
+                  placeholder="Reference No *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.referenceNo ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.referenceNo ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.referenceNo}</span> : null}
+                <input
+                  value={address}
+                  onChange={(e) => {
+                    setAddress(e.target.value);
+                    if (fieldErrors.address) setFieldErrors((prev) => ({ ...prev, address: "" }));
+                  }}
+                  placeholder="Address *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.address ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.address ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.address}</span> : null}
                 <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note" rows={3} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
-                <input value={fromTitle} onChange={(e) => setFromTitle(e.target.value)} placeholder="From Title *" style={fieldStyle()} />
+                <input
+                  value={fromTitle}
+                  onChange={(e) => {
+                    setFromTitle(e.target.value);
+                    if (fieldErrors.fromTitle) setFieldErrors((prev) => ({ ...prev, fromTitle: "" }));
+                  }}
+                  placeholder="From Title *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.fromTitle ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.fromTitle ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.fromTitle}</span> : null}
                 <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
                 <input type="file" onChange={(e) => setFileUpload(e.target.files?.[0] || null)} style={{ ...fieldStyle(), padding: 6 }} />
                 {editingId && fileUrl ? <a href={fileUrl} target="_blank" rel="noreferrer" style={{ color: "var(--primary)", fontSize: 12 }}>View existing file</a> : null}

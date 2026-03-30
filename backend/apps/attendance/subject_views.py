@@ -1,6 +1,7 @@
 from calendar import monthrange
 
 from rest_framework import permissions, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -20,6 +21,21 @@ from .serializers import (
 
 class SubjectAttendanceTenantMixin:
     permission_classes = [permissions.IsAuthenticated]
+
+    def _required_permission_code(self):
+        class_name = self.__class__.__name__.lower()
+        if "report" in class_name:
+            return "student_info.subject_wise_attendance_report.view"
+        return "student_info.subject_wise_attendance.view"
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        user = request.user
+        if user.is_superuser:
+            return
+        code = self._required_permission_code()
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
 
     def school_filter(self, request):
         return {} if request.user.is_superuser else {"school_id": request.user.school_id}
