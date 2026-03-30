@@ -74,6 +74,43 @@ from .serializers import (
 class ExamTenantMixin:
     permission_classes = [permissions.IsAuthenticated]
 
+    def _resolve_permission_code(self):
+        class_name = self.__class__.__name__.lower()
+        if "onlineexam" in class_name:
+            return "examination.online_exam.view"
+        if "admitcard" in class_name:
+            return "examination.admit_card.view"
+        if "seatplan" in class_name:
+            return "examination.seat_plan.view"
+        if "resultpublish" in class_name:
+            return "examination.result_publish.view"
+        if "attendance" in class_name:
+            return "examination.exam_attendance.view"
+        if "marksregister" in class_name or "mark" in class_name:
+            return "examination.marks_register.view"
+        if "schedule" in class_name:
+            return "examination.exam_schedule.view"
+        if "setup" in class_name:
+            return "examination.exam_setup.view"
+        if "merit" in class_name:
+            return "examination.merit_list.view"
+        if "report" in class_name:
+            return "examination.student_mark_sheet.view"
+        if "examtype" in class_name:
+            return "examination.exam_type.view"
+        if "gradescale" in class_name:
+            return "examination.exam_type.view"
+        return "examination.exam_type.view"
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        user = request.user
+        if user.is_superuser:
+            return
+        code = self._resolve_permission_code()
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
+
     def school_filter(self, request):
         return {} if request.user.is_superuser else {"school_id": request.user.school_id}
 
@@ -1687,6 +1724,24 @@ class ExamMeritPrintAPIView(ExamTenantMixin, APIView):
 
 class SchoolScopedModelViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {}
+
+    def get_required_permission_code(self):
+        action = getattr(self, "action", None)
+        if action and action in self.permission_codes:
+            return self.permission_codes[action]
+        return self.permission_codes.get("*")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        code = self.get_required_permission_code()
+        if not code:
+            return
+        user = request.user
+        if user.is_superuser:
+            return
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -1711,6 +1766,7 @@ class ExamTypeViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["is_active"]
     search_fields = ["title", "description"]
     ordering_fields = ["title", "created_at"]
+    permission_codes = {"*": "examination.exam_type.view"}
 
 
 class ExamGradeScaleViewSet(SchoolScopedModelViewSet):
@@ -1719,6 +1775,7 @@ class ExamGradeScaleViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["is_fail"]
     search_fields = ["name"]
     ordering_fields = ["min_percent", "max_percent", "name"]
+    permission_codes = {"*": "examination.exam_type.view"}
 
 
 class ExamViewSet(SchoolScopedModelViewSet):
@@ -1727,6 +1784,17 @@ class ExamViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["academic_year", "exam_type", "status", "start_date"]
     search_fields = ["name"]
     ordering_fields = ["start_date", "end_date", "created_at"]
+    permission_codes = {
+        "list": "examination.exam_type.view",
+        "retrieve": "examination.exam_type.view",
+        "create": "examination.exam_setup.view",
+        "update": "examination.exam_setup.view",
+        "partial_update": "examination.exam_setup.view",
+        "destroy": "examination.exam_setup.view",
+        "summary": "examination.exam_schedule_report.view",
+        "publish_results": "examination.result_publish.view",
+        "student_results": "examination.student_mark_sheet.view",
+    }
 
     @action(detail=True, methods=["get"], url_path="summary")
     def summary(self, request, pk=None):
@@ -1818,6 +1886,7 @@ class ExamViewSet(SchoolScopedModelViewSet):
 class ExamScheduleViewSet(SchoolScopedModelViewSet):
     queryset = ExamSchedule.objects.select_related("school", "exam", "school_class", "section", "subject").all()
     serializer_class = ExamScheduleSerializer
+    permission_codes = {"*": "examination.exam_schedule.view"}
     filterset_fields = ["exam", "school_class", "section", "subject", "exam_date"]
     search_fields = ["exam__name", "school_class__name", "subject__name", "room"]
     ordering_fields = ["exam_date", "start_time", "created_at"]
@@ -1826,6 +1895,7 @@ class ExamScheduleViewSet(SchoolScopedModelViewSet):
 class ExamMarkViewSet(SchoolScopedModelViewSet):
     queryset = ExamMark.objects.select_related("school", "exam", "schedule", "student", "created_by").all()
     serializer_class = ExamMarkSerializer
+    permission_codes = {"*": "examination.add_marks.view"}
     filterset_fields = ["exam", "schedule", "student", "absent"]
     search_fields = ["student__first_name", "student__last_name", "student__admission_no", "note"]
     ordering_fields = ["created_at", "obtained_marks"]

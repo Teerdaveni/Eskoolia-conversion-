@@ -86,6 +86,7 @@ export function CertificatePanel() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
 
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -138,6 +139,7 @@ export function CertificatePanel() {
     setPl("5");
     setBackgroundUpload(null);
     setBackgroundUrl("");
+    setFieldErrors({});
   };
 
   const edit = (row: CertificateRow) => {
@@ -154,11 +156,16 @@ export function CertificatePanel() {
     setPl(String(row.pading_left || "5"));
     setBackgroundUpload(null);
     setBackgroundUrl(row.background_url || "");
+    setFieldErrors({});
   };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!title.trim() || !body.trim()) {
+    const nextErrors: Record<string, string> = {};
+    if (!title.trim()) nextErrors.title = "Certificate title is required.";
+    if (!body.trim()) nextErrors.body = "Certificate body is required.";
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
       setError("Certificate title and body are required.");
       return;
     }
@@ -180,6 +187,7 @@ export function CertificatePanel() {
       setSaving(true);
       setError("");
       setSuccess("");
+      setFieldErrors({});
       if (editingId) {
         await apiForm(`/api/v1/admissions/certificate-templates/${editingId}/`, "PATCH", formData);
         setSuccess("Certificate updated successfully.");
@@ -250,7 +258,16 @@ export function CertificatePanel() {
                   <option value="School">School</option>
                   <option value="Lms">Lms</option>
                 </select>
-                <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Certificate Title *" style={fieldStyle()} />
+                <input
+                  value={title}
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    if (fieldErrors.title) setFieldErrors((prev) => ({ ...prev, title: "" }));
+                  }}
+                  placeholder="Certificate Title *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.title ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.title ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.title}</span> : null}
                 <select value={roleId} onChange={(e) => setRoleId(e.target.value)} style={fieldStyle()}>
                   <option value="">All roles</option>
                   {roles.map((role) => (
@@ -259,7 +276,17 @@ export function CertificatePanel() {
                     </option>
                   ))}
                 </select>
-                <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Certificate Body *" rows={5} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
+                <textarea
+                  value={body}
+                  onChange={(e) => {
+                    setBody(e.target.value);
+                    if (fieldErrors.body) setFieldErrors((prev) => ({ ...prev, body: "" }));
+                  }}
+                  placeholder="Certificate Body *"
+                  rows={5}
+                  style={{ border: `1px solid ${fieldErrors.body ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "8px 10px" }}
+                />
+                {fieldErrors.body ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.body}</span> : null}
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <input value={height} onChange={(e) => setHeight(e.target.value)} placeholder="Height (mm)" style={fieldStyle()} />

@@ -1,8 +1,11 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError
 from django.db.models import Q, Sum
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from apps.core.models import Class, Section
@@ -64,20 +67,30 @@ class RoleViewSet(viewsets.ModelViewSet):
             return queryset.filter(school_id=user.school_id)
         return queryset.none()
 
+    def get_object(self):
+        try:
+            return super().get_object()
+        except (ValueError, TypeError, DjangoValidationError):
+            raise NotFound("Role not found.")
+
     def perform_create(self, serializer):
         user = self.request.user
-        serializer.save(school=user.school)
+        try:
+            serializer.save(school=user.school)
+        except IntegrityError:
+            raise ValidationError({"name": "Role with this name already exists."})
 
-    @action(detail=False, methods=["get"], url_path="permission-tree")
-    def permission_tree(self, request):
-        role_id = request.query_params.get("role")
-        role = None
-        selected_ids = set()
-        if role_id:
-            role = self.get_queryset().filter(id=role_id).first()
-            if role:
-                selected_ids = set(role.permissions.values_list("id", flat=True))
+    def perform_update(self, serializer):
+        try:
+            serializer.save()
+        except IntegrityError:
+            raise ValidationError({"name": "Role with this name already exists."})
 
+    @staticmethod
+    def _module_label(module_code: str) -> str:
+        return (module_code or "").replace("_", " ").replace("-", " ").title()
+
+    def _build_permission_tree_rows(self, selected_ids: set[int]):
         grouped = {}
         for perm in Permission.objects.order_by("module", "name"):
             grouped.setdefault(perm.module, []).append(
@@ -89,10 +102,43 @@ class RoleViewSet(viewsets.ModelViewSet):
                 }
             )
 
-        rows = [{"module": module, "permissions": perms} for module, perms in grouped.items()]
+        rows = []
+        for module, perms in grouped.items():
+            rows.append(
+                {
+                    "module": module,
+                    "module_name": self._module_label(module),
+                    "permissions": perms,
+                }
+            )
+        return rows
+
+    @action(detail=False, methods=["get"], url_path="permission-tree")
+    def permission_tree(self, request):
+        role_id = request.query_params.get("role") or request.query_params.get("role_id")
+        role = None
+        selected_ids = set()
+        if role_id:
+            role = self.get_queryset().filter(id=role_id).first()
+            if role:
+                selected_ids = set(role.permissions.values_list("id", flat=True))
+        rows = self._build_permission_tree_rows(selected_ids)
         return Response(
             {
                 "role": {"id": role.id, "name": role.name} if role else None,
+                "modules": rows,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["get"], url_path="permission-tree")
+    def permission_tree_by_role(self, request, pk=None):
+        role = self.get_object()
+        selected_ids = set(role.permissions.values_list("id", flat=True))
+        rows = self._build_permission_tree_rows(selected_ids)
+        return Response(
+            {
+                "role": {"id": role.id, "name": role.name},
                 "modules": rows,
             },
             status=status.HTTP_200_OK,
@@ -105,7 +151,26 @@ class RoleViewSet(viewsets.ModelViewSet):
         if not isinstance(permission_ids, list):
             return Response({"detail": "permission_ids must be a list."}, status=status.HTTP_400_BAD_REQUEST)
 
-        permissions_qs = Permission.objects.filter(id__in=permission_ids)
+        normalized_ids = []
+        for raw_id in permission_ids:
+            try:
+                normalized_ids.append(int(raw_id))
+            except (TypeError, ValueError):
+                return Response({"detail": "permission_ids must contain integer IDs."}, status=status.HTTP_400_BAD_REQUEST)
+
+        unique_ids = list(dict.fromkeys(normalized_ids))
+        permissions_qs = Permission.objects.filter(id__in=unique_ids)
+        found_ids = set(permissions_qs.values_list("id", flat=True))
+        invalid_ids = [pid for pid in unique_ids if pid not in found_ids]
+        if invalid_ids:
+            return Response(
+                {
+                    "detail": "Some permissions are invalid.",
+                    "invalid_permission_ids": invalid_ids,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         role.permissions.set(permissions_qs)
         return Response(
             {
@@ -354,11 +419,14 @@ class DueFeesLoginPermissionViewSet(viewsets.ViewSet):
         return Role.objects.none()
 
     def list(self, request):
+        class_id = request.query_params.get("class") or request.query_params.get("class_id")
         classes_qs = Class.objects.order_by("numeric_order", "name")
         sections_qs = Section.objects.select_related("school_class").order_by("name")
         if not request.user.is_superuser and request.user.school_id:
             classes_qs = classes_qs.filter(school_id=request.user.school_id)
             sections_qs = sections_qs.filter(school_class__school_id=request.user.school_id)
+        if class_id:
+            sections_qs = sections_qs.filter(school_class_id=class_id)
 
         classes = [{"id": row.id, "name": row.name} for row in classes_qs]
         sections = [{"id": row.id, "name": row.name, "class_id": row.school_class_id} for row in sections_qs]

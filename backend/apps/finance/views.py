@@ -15,6 +15,24 @@ from .serializers import BankAccountSerializer, ChartOfAccountSerializer, FundTr
 
 class SchoolScopedModelViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {}
+
+    def get_required_permission_code(self):
+        action = getattr(self, "action", None)
+        if action and action in self.permission_codes:
+            return self.permission_codes[action]
+        return self.permission_codes.get("*")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        code = self.get_required_permission_code()
+        if not code:
+            return
+        user = request.user
+        if user.is_superuser:
+            return
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -39,6 +57,7 @@ class ChartOfAccountViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["account_type", "is_active"]
     search_fields = ["code", "name", "description"]
     ordering_fields = ["code", "name", "created_at"]
+    permission_codes = {"*": "accounts.chart_of_accounts.view"}
 
 
 class BankAccountViewSet(SchoolScopedModelViewSet):
@@ -47,6 +66,10 @@ class BankAccountViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["is_active", "bank_name"]
     search_fields = ["name", "account_number", "bank_name", "branch"]
     ordering_fields = ["name", "current_balance", "created_at"]
+    permission_codes = {
+        "*": "accounts.bank_accounts.view",
+        "statement": "accounts.bank_accounts.view",
+    }
 
     @action(detail=True, methods=["get"], url_path="statement")
     def statement(self, request, pk=None):
@@ -94,6 +117,11 @@ class LedgerEntryViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["academic_year", "account", "entry_type", "entry_date"]
     search_fields = ["reference_no", "description", "account__code", "account__name"]
     ordering_fields = ["entry_date", "amount", "created_at"]
+    permission_codes = {
+        "*": "accounts.ledger_entries.view",
+        "summary": "accounts.ledger_entries.view",
+        "trial_balance": "accounts.ledger_entries.view",
+    }
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -185,6 +213,7 @@ class FundTransferViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["from_bank", "to_bank", "transfer_date"]
     search_fields = ["reference_no", "note", "from_bank__name", "to_bank__name"]
     ordering_fields = ["transfer_date", "amount", "created_at"]
+    permission_codes = {"*": "accounts.fund_transfer.view"}
 
     @transaction.atomic
     def perform_create(self, serializer):

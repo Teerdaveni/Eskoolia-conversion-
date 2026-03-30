@@ -26,6 +26,21 @@ from .services import send_present_attendance_notifications
 class AttendanceTenantMixin:
     permission_classes = [permissions.IsAuthenticated]
 
+    def _required_permission_code(self):
+        class_name = self.__class__.__name__.lower()
+        if "import" in class_name or "downloadsample" in class_name:
+            return "student_info.student_attendance_import.view"
+        return "student_info.student_attendance.view"
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        user = request.user
+        if user.is_superuser:
+            return
+        code = self._required_permission_code()
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
+
     def school_filter(self, request):
         return {} if request.user.is_superuser else {"school_id": request.user.school_id}
 

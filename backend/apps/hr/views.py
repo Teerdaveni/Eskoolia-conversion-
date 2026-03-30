@@ -26,6 +26,24 @@ from .serializers import (
 
 class SchoolScopedModelViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {}
+
+    def get_required_permission_code(self):
+        action = getattr(self, "action", None)
+        if action and action in self.permission_codes:
+            return self.permission_codes[action]
+        return self.permission_codes.get("*")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        code = self.get_required_permission_code()
+        if not code:
+            return
+        user = request.user
+        if user.is_superuser:
+            return
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -50,6 +68,7 @@ class DepartmentViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["is_active"]
     search_fields = ["name", "description"]
     ordering_fields = ["name", "created_at"]
+    permission_codes = {"*": "human_resource.departments.view"}
 
 
 class DesignationViewSet(SchoolScopedModelViewSet):
@@ -58,6 +77,7 @@ class DesignationViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["department", "is_active"]
     search_fields = ["name", "department__name"]
     ordering_fields = ["name", "created_at"]
+    permission_codes = {"*": "human_resource.designations.view"}
 
 
 class StaffViewSet(SchoolScopedModelViewSet):
@@ -66,6 +86,10 @@ class StaffViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["role", "department", "designation", "status", "join_date", "gender", "marital_status", "contract_type"]
     search_fields = ["staff_no", "first_name", "last_name", "email", "phone", "emergency_mobile", "location", "driving_license"]
     ordering_fields = ["first_name", "join_date", "created_at"]
+    permission_codes = {
+        "*": "human_resource.staff.view",
+        "next_staff_no": "human_resource.staff.view",
+    }
 
     def get_queryset(self):
         """Return school staff members. Optionally filter by driver role for vehicle dropdown."""
@@ -194,6 +218,7 @@ class LeaveTypeViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["is_paid", "is_active"]
     search_fields = ["name"]
     ordering_fields = ["name", "created_at"]
+    permission_codes = {"*": "human_resource.leave_type.view"}
 
 
 class LeaveDefineViewSet(SchoolScopedModelViewSet):
@@ -202,6 +227,7 @@ class LeaveDefineViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["role", "staff", "leave_type"]
     search_fields = ["role__name", "staff__first_name", "staff__last_name", "leave_type__name"]
     ordering_fields = ["created_at", "days"]
+    permission_codes = {"*": "human_resource.leave_define.view"}
 
 
 class LeaveRequestViewSet(SchoolScopedModelViewSet):
@@ -210,6 +236,11 @@ class LeaveRequestViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["staff", "leave_type", "status", "from_date", "to_date"]
     search_fields = ["staff__staff_no", "staff__first_name", "staff__last_name", "reason"]
     ordering_fields = ["created_at", "from_date", "to_date"]
+    permission_codes = {
+        "*": "human_resource.apply_leave.view",
+        "approve": "human_resource.apply_leave.view",
+        "reject": "human_resource.apply_leave.view",
+    }
 
     def _current_staff(self):
         user = self.request.user
@@ -313,6 +344,11 @@ class StaffAttendanceViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["staff", "attendance_date", "attendance_type"]
     search_fields = ["staff__staff_no", "staff__first_name", "staff__last_name", "note"]
     ordering_fields = ["attendance_date", "created_at"]
+    permission_codes = {
+        "*": "human_resource.staff_attendance.view",
+        "bulk_store": "human_resource.staff_attendance.view",
+        "report": "human_resource.staff_attendance.view",
+    }
 
     @action(detail=False, methods=["post"], url_path="bulk-store")
     def bulk_store(self, request):
@@ -360,6 +396,11 @@ class PayrollRecordViewSet(SchoolScopedModelViewSet):
     filterset_fields = ["staff", "payroll_month", "payroll_year", "status"]
     search_fields = ["staff__staff_no", "staff__first_name", "staff__last_name"]
     ordering_fields = ["payroll_year", "payroll_month", "created_at", "net_salary"]
+    permission_codes = {
+        "*": "human_resource.payroll.view",
+        "summary": "human_resource.payroll.view",
+        "mark_paid": "human_resource.payroll.view",
+    }
 
     def perform_create(self, serializer):
         user = self.request.user

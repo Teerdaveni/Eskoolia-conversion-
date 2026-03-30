@@ -133,10 +133,10 @@ class VisitorBookEntrySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = VisitorBookEntry
-                    "purpose",
         fields = [
             "id",
             "school",
+            "purpose",
             "purpose_name",
             "name",
             "phone",
@@ -270,8 +270,8 @@ class ComplaintEntrySerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField(read_only=True)
     complaint_type_name = serializers.SerializerMethodField(read_only=True)
     complaint_source_name = serializers.SerializerMethodField(read_only=True)
-        complaint_type = serializers.CharField(write_only=True, required=False, allow_blank=True)
-        complaint_source = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    complaint_type = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    complaint_source = serializers.CharField(write_only=True, required=False, allow_blank=True)
     file_upload = serializers.FileField(write_only=True, required=False, allow_null=True)
     file_url = serializers.SerializerMethodField(read_only=True)
 

@@ -91,6 +91,7 @@ export function AdminSetupPanel() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ type?: string; name?: string }>({});
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [type, setType] = useState<AdminSetupRow["type"] | "">("");
@@ -119,6 +120,7 @@ export function AdminSetupPanel() {
     setType("");
     setName("");
     setDescription("");
+    setFieldErrors({});
   };
 
   const edit = (row: AdminSetupRow) => {
@@ -126,11 +128,16 @@ export function AdminSetupPanel() {
     setType(row.type);
     setName(row.name || "");
     setDescription(row.description || "");
+    setFieldErrors({});
   };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!type || !name.trim()) {
+    const nextErrors: { type?: string; name?: string } = {};
+    if (!type) nextErrors.type = "Type is required.";
+    if (!name.trim()) nextErrors.name = "Name is required.";
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
       setError("Type and name are required.");
       return;
     }
@@ -145,6 +152,7 @@ export function AdminSetupPanel() {
       setSaving(true);
       setError("");
       setSuccess("");
+      setFieldErrors({});
       if (editingId) {
         await apiMutate(`/api/v1/admissions/admin-setups/${editingId}/`, "PATCH", payload);
         setSuccess("Admin setup updated successfully.");
@@ -212,13 +220,39 @@ export function AdminSetupPanel() {
             <div className="white-box" style={boxStyle()}>
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Admin Setup" : "Add Admin Setup"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
-                <select aria-label="Admin Setup Type" value={type} onChange={(e) => setType(e.target.value as AdminSetupRow["type"])} style={fieldStyle()}>
+                <select
+                  aria-label="Admin Setup Type"
+                  value={type}
+                  onChange={(e) => {
+                    setType(e.target.value as AdminSetupRow["type"]);
+                    if (fieldErrors.type) setFieldErrors((prev) => ({ ...prev, type: undefined }));
+                  }}
+                  style={{
+                    ...fieldStyle(),
+                    borderColor: fieldErrors.type ? "#dc2626" : "var(--line)",
+                    boxShadow: fieldErrors.type ? "0 0 0 2px rgba(220, 38, 38, 0.15)" : "none",
+                  }}
+                >
                   <option value="">Type *</option>
                   {TYPE_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
-                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name *" style={fieldStyle()} />
+                {fieldErrors.type ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.type}</span> : null}
+                <input
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (fieldErrors.name) setFieldErrors((prev) => ({ ...prev, name: undefined }));
+                  }}
+                  placeholder="Name *"
+                  style={{
+                    ...fieldStyle(),
+                    borderColor: fieldErrors.name ? "#dc2626" : "var(--line)",
+                    boxShadow: fieldErrors.name ? "0 0 0 2px rgba(220, 38, 38, 0.15)" : "none",
+                  }}
+                />
+                {fieldErrors.name ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.name}</span> : null}
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" rows={3} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
 
                 <div style={{ display: "flex", gap: 8 }}>

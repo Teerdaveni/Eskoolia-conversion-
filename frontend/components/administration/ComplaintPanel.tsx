@@ -92,6 +92,7 @@ export function ComplaintPanel() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
 
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -146,6 +147,7 @@ export function ComplaintPanel() {
     setDescription("");
     setFileUpload(null);
     setFileUrl("");
+    setFieldErrors({});
   };
 
   const edit = (row: ComplaintRow) => {
@@ -163,12 +165,21 @@ export function ComplaintPanel() {
     setDescription(row.description || "");
     setFileUpload(null);
     setFileUrl(row.file_url || "");
+    setFieldErrors({});
   };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
 
-    if (!complaintBy.trim() || !complaintType.trim() || !complaintSource.trim()) {
+    const nextErrors: Record<string, string> = {};
+    if (!complaintBy.trim()) nextErrors.complaintBy = "Complaint by is required.";
+    if (!complaintType.trim()) nextErrors.complaintType = "Complaint type is required.";
+    if (!complaintSource.trim()) nextErrors.complaintSource = "Complaint source is required.";
+    if (phone.trim() && !/^\+?[0-9\s().-]+$/.test(phone.trim())) {
+      nextErrors.phone = "Enter a valid phone number.";
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
       setError("Complaint by, complaint type and source are required.");
       return;
     }
@@ -188,6 +199,7 @@ export function ComplaintPanel() {
       setSaving(true);
       setError("");
       setSuccess("");
+      setFieldErrors({});
       if (editingId) {
         await apiForm(`/api/v1/admissions/complaints/${editingId}/`, "PATCH", formData);
         setSuccess("Complaint updated successfully.");
@@ -252,8 +264,25 @@ export function ComplaintPanel() {
             <div className="white-box" style={boxStyle()}>
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Complaint" : "Add Complaint"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
-                <input value={complaintBy} onChange={(e) => setComplaintBy(e.target.value)} placeholder="Complaint By *" style={fieldStyle()} />
-                <select aria-label="Complaint Type" value={complaintType} onChange={(e) => setComplaintType(e.target.value)} style={fieldStyle()}>
+                <input
+                  value={complaintBy}
+                  onChange={(e) => {
+                    setComplaintBy(e.target.value);
+                    if (fieldErrors.complaintBy) setFieldErrors((prev) => ({ ...prev, complaintBy: "" }));
+                  }}
+                  placeholder="Complaint By *"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.complaintBy ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.complaintBy ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.complaintBy}</span> : null}
+                <select
+                  aria-label="Complaint Type"
+                  value={complaintType}
+                  onChange={(e) => {
+                    setComplaintType(e.target.value);
+                    if (fieldErrors.complaintType) setFieldErrors((prev) => ({ ...prev, complaintType: "" }));
+                  }}
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.complaintType ? "#dc2626" : "var(--line)" }}
+                >
                   <option value="">Select Complaint Type *</option>
                   {complaintTypeOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -261,7 +290,16 @@ export function ComplaintPanel() {
                     </option>
                   ))}
                 </select>
-                <select aria-label="Complaint Source" value={complaintSource} onChange={(e) => setComplaintSource(e.target.value)} style={fieldStyle()}>
+                {fieldErrors.complaintType ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.complaintType}</span> : null}
+                <select
+                  aria-label="Complaint Source"
+                  value={complaintSource}
+                  onChange={(e) => {
+                    setComplaintSource(e.target.value);
+                    if (fieldErrors.complaintSource) setFieldErrors((prev) => ({ ...prev, complaintSource: "" }));
+                  }}
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.complaintSource ? "#dc2626" : "var(--line)" }}
+                >
                   <option value="">Select Complaint Source *</option>
                   {complaintSourceOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -269,7 +307,17 @@ export function ComplaintPanel() {
                     </option>
                   ))}
                 </select>
-                <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" style={fieldStyle()} />
+                {fieldErrors.complaintSource ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.complaintSource}</span> : null}
+                <input
+                  value={phone}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    if (fieldErrors.phone) setFieldErrors((prev) => ({ ...prev, phone: "" }));
+                  }}
+                  placeholder="Phone"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.phone ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.phone ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.phone}</span> : null}
                 <input aria-label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
                 <input value={actionTaken} onChange={(e) => setActionTaken(e.target.value)} placeholder="Action Taken" style={fieldStyle()} />
                 <input value={assigned} onChange={(e) => setAssigned(e.target.value)} placeholder="Assigned" style={fieldStyle()} />

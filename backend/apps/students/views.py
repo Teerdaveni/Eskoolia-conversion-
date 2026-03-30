@@ -2,7 +2,7 @@ from django.db import transaction
 from django.db.models import Count
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from .models import (
     Guardian,
@@ -31,6 +31,24 @@ from .serializers import (
 class TenantScopedModelViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     model = None
+    permission_codes = {}
+
+    def get_required_permission_code(self):
+        action = getattr(self, "action", None)
+        if action and action in self.permission_codes:
+            return self.permission_codes[action]
+        return self.permission_codes.get("*")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        code = self.get_required_permission_code()
+        if not code:
+            return
+        user = request.user
+        if user.is_superuser:
+            return
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
 
     def get_queryset(self):
         user = self.request.user
@@ -55,11 +73,13 @@ class TenantScopedModelViewSet(viewsets.ModelViewSet):
 class StudentCategoryViewSet(TenantScopedModelViewSet):
     model = StudentCategory
     serializer_class = StudentCategorySerializer
+    permission_codes = {"*": "student_info.student_category.view"}
 
 
 class StudentGroupViewSet(TenantScopedModelViewSet):
     model = StudentGroup
     serializer_class = StudentGroupSerializer
+    permission_codes = {"*": "student_info.student_group.view"}
 
     def get_queryset(self):
         user = self.request.user
@@ -74,11 +94,21 @@ class StudentGroupViewSet(TenantScopedModelViewSet):
 class GuardianViewSet(TenantScopedModelViewSet):
     model = Guardian
     serializer_class = GuardianSerializer
+    permission_codes = {"*": "student_info.add_student.view"}
 
 
 class StudentViewSet(TenantScopedModelViewSet):
     model = Student
     serializer_class = StudentSerializer
+    permission_codes = {
+        "list": "student_info.student_list.view",
+        "retrieve": "student_info.student_list.view",
+        "create": "student_info.add_student.view",
+        "update": "student_info.add_student.view",
+        "partial_update": "student_info.add_student.view",
+        "destroy": "student_info.delete_student_record.view",
+        "promote": "student_info.student_promote.view",
+    }
 
     def get_queryset(self):
         user = self.request.user
@@ -161,9 +191,10 @@ class StudentViewSet(TenantScopedModelViewSet):
         return Response({"promoted": promoted_count}, status=status.HTTP_200_OK)
 
 
-class StudentDocumentViewSet(viewsets.ModelViewSet):
+class StudentDocumentViewSet(TenantScopedModelViewSet):
     serializer_class = StudentDocumentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    model = StudentDocument
+    permission_codes = {"*": "student_info.student_list.view"}
 
     def get_queryset(self):
         user = self.request.user
@@ -175,9 +206,10 @@ class StudentDocumentViewSet(viewsets.ModelViewSet):
         return qs.none()
 
 
-class StudentTransferHistoryViewSet(viewsets.ModelViewSet):
+class StudentTransferHistoryViewSet(TenantScopedModelViewSet):
     serializer_class = StudentTransferHistorySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    model = StudentTransferHistory
+    permission_codes = {"*": "student_info.delete_student_record.view"}
 
     def get_queryset(self):
         user = self.request.user
@@ -189,9 +221,10 @@ class StudentTransferHistoryViewSet(viewsets.ModelViewSet):
         return qs.none()
 
 
-class StudentPromotionHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+class StudentPromotionHistoryViewSet(TenantScopedModelViewSet):
     serializer_class = StudentPromotionHistorySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    model = StudentPromotionHistory
+    permission_codes = {"*": "student_info.student_promote.view"}
 
     def get_queryset(self):
         user = self.request.user
@@ -212,9 +245,13 @@ class StudentPromotionHistoryViewSet(viewsets.ReadOnlyModelViewSet):
         return qs.none()
 
 
-class StudentMultiClassRecordViewSet(viewsets.ModelViewSet):
+class StudentMultiClassRecordViewSet(TenantScopedModelViewSet):
     serializer_class = StudentMultiClassRecordSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    model = StudentMultiClassRecord
+    permission_codes = {
+        "*": "student_info.multi_class_student.view",
+        "bulk_save": "student_info.multi_class_student.view",
+    }
 
     def get_queryset(self):
         user = self.request.user

@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import Q
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from apps.hr.models import Staff
 from apps.users.models import User
@@ -44,6 +45,24 @@ from .serializers import (
 class TenantScopedModelViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     model = None
+    permission_codes = {}
+
+    def get_required_permission_code(self):
+        action = getattr(self, "action", None)
+        if action and action in self.permission_codes:
+            return self.permission_codes[action]
+        return self.permission_codes.get("*")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        code = self.get_required_permission_code()
+        if not code:
+            return
+        user = request.user
+        if user.is_superuser:
+            return
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
 
     def get_queryset(self):
         user = self.request.user
@@ -74,6 +93,7 @@ class TenantScopedModelViewSet(viewsets.ModelViewSet):
 class ClassSubjectAssignmentViewSet(TenantScopedModelViewSet):
     model = ClassSubjectAssignment
     serializer_class = ClassSubjectAssignmentSerializer
+    permission_codes = {"*": "academics.core_setup.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("school_class", "section", "subject", "teacher", "academic_year")
@@ -92,6 +112,7 @@ class ClassSubjectAssignmentViewSet(TenantScopedModelViewSet):
 class ClassTeacherAssignmentViewSet(TenantScopedModelViewSet):
     model = ClassTeacherAssignment
     serializer_class = ClassTeacherAssignmentSerializer
+    permission_codes = {"*": "academics.core_setup.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("school_class", "section", "teacher", "academic_year")
@@ -109,6 +130,7 @@ class ClassTeacherAssignmentViewSet(TenantScopedModelViewSet):
 class ClassRoutineSlotViewSet(TenantScopedModelViewSet):
     model = ClassRoutineSlot
     serializer_class = ClassRoutineSlotSerializer
+    permission_codes = {"*": "academics.core_setup.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("school_class", "section", "subject", "teacher", "academic_year")
@@ -130,11 +152,13 @@ class ClassRoutineSlotViewSet(TenantScopedModelViewSet):
 class ClassOptionalSubjectSetupViewSet(TenantScopedModelViewSet):
     model = ClassOptionalSubjectSetup
     serializer_class = ClassOptionalSubjectSetupSerializer
+    permission_codes = {"*": "academics.core_setup.view"}
 
 
-class OptionalSubjectAssignmentViewSet(viewsets.ModelViewSet):
+class OptionalSubjectAssignmentViewSet(TenantScopedModelViewSet):
+    model = OptionalSubjectAssignment
     serializer_class = OptionalSubjectAssignmentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "academics.core_setup.view"}
 
     def get_queryset(self):
         user = self.request.user
@@ -152,6 +176,14 @@ class OptionalSubjectAssignmentViewSet(viewsets.ModelViewSet):
 class HomeworkViewSet(TenantScopedModelViewSet):
     model = Homework
     serializer_class = HomeworkSerializer
+    permission_codes = {
+        "list": "academics.homework_list.view",
+        "retrieve": "academics.homework_list.view",
+        "create": "academics.add_homework.view",
+        "update": "academics.add_homework.view",
+        "partial_update": "academics.add_homework.view",
+        "destroy": "academics.add_homework.view",
+    }
 
     def get_queryset(self):
         user = self.request.user
@@ -193,9 +225,10 @@ class HomeworkViewSet(TenantScopedModelViewSet):
             instance.save(update_fields=["evaluated_by", "updated_at"])
 
 
-class HomeworkSubmissionViewSet(viewsets.ModelViewSet):
+class HomeworkSubmissionViewSet(TenantScopedModelViewSet):
+    model = HomeworkSubmission
     serializer_class = HomeworkSubmissionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "academics.homework_list.view"}
 
     def get_queryset(self):
         user = self.request.user
@@ -222,6 +255,7 @@ class HomeworkSubmissionViewSet(viewsets.ModelViewSet):
 class UploadedContentViewSet(TenantScopedModelViewSet):
     model = UploadedContent
     serializer_class = UploadedContentSerializer
+    permission_codes = {"*": "academics.upload_content.view"}
 
     def get_queryset(self):
         user = self.request.user
@@ -252,6 +286,11 @@ class UploadedContentViewSet(TenantScopedModelViewSet):
 class LessonViewSet(TenantScopedModelViewSet):
     model = Lesson
     serializer_class = LessonSerializer
+    permission_codes = {
+        "*": "academics.lesson.view",
+        "grouped": "academics.lesson.view",
+        "delete_group": "academics.lesson.view",
+    }
 
     def get_queryset(self):
         queryset = Lesson.objects.select_related("school", "academic_year", "school_class", "section", "subject", "user")
@@ -357,6 +396,10 @@ class LessonViewSet(TenantScopedModelViewSet):
 class LessonTopicViewSet(TenantScopedModelViewSet):
     model = LessonTopic
     serializer_class = LessonTopicSerializer
+    permission_codes = {
+        "*": "academics.topic.view",
+        "delete_group": "academics.topic.view",
+    }
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related(
@@ -431,9 +474,10 @@ class LessonTopicViewSet(TenantScopedModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class LessonTopicDetailViewSet(viewsets.ModelViewSet):
+class LessonTopicDetailViewSet(TenantScopedModelViewSet):
+    model = LessonTopicDetail
     serializer_class = LessonTopicDetailSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "academics.topic.view"}
 
     def get_queryset(self):
         queryset = LessonTopicDetail.objects.select_related(
@@ -463,6 +507,12 @@ class LessonTopicDetailViewSet(viewsets.ModelViewSet):
 class LessonPlannerViewSet(TenantScopedModelViewSet):
     model = LessonPlanner
     serializer_class = LessonPlannerSerializer
+    permission_codes = {
+        "*": "academics.lesson_planner.view",
+        "overview": "academics.lesson_planner.view",
+        "teachers": "academics.lesson_planner.view",
+        "weekly": "academics.lesson_planner.view",
+    }
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related(

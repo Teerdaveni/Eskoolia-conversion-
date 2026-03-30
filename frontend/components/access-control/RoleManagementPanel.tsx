@@ -60,6 +60,8 @@ export function RoleManagementPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [fieldError, setFieldError] = useState("");
 
   const [roleName, setRoleName] = useState("");
   const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
@@ -91,28 +93,48 @@ export function RoleManagementPanel() {
   const resetForm = () => {
     setEditingRoleId(null);
     setRoleName("");
+    setFieldError("");
   };
+
+  const isValidRoleName = (value: string) => /^[A-Za-z0-9 ]+$/.test(value);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!roleName.trim()) {
-      setError("Role name is required.");
+    const normalized = roleName.trim();
+    if (!normalized) {
+      setFieldError("Role name is required.");
+      setError("Please fix the highlighted field.");
+      setSuccess("");
+      return;
+    }
+    if (!isValidRoleName(normalized)) {
+      setFieldError("Role name can contain only letters, numbers, and spaces.");
+      setError("Please fix the highlighted field.");
+      setSuccess("");
       return;
     }
 
     try {
       setSaving(true);
       setError("");
+      setSuccess("");
+      setFieldError("");
       const isUpdate = editingRoleId !== null;
       await apiRequestWithRefresh(`/api/v1/access-control/roles/${isUpdate ? `${editingRoleId}/` : ""}`, {
         method: isUpdate ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: roleName.trim() }),
+        body: JSON.stringify({ name: normalized }),
       });
       resetForm();
+      setSuccess(isUpdate ? "Role updated successfully." : "Role created successfully.");
       await loadRoles();
-    } catch {
-      setError("Unable to save role.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to save role.";
+      setError(message);
+      setSuccess("");
+      if (message.toLowerCase().includes("name")) {
+        setFieldError(message);
+      }
     } finally {
       setSaving(false);
     }
@@ -121,14 +143,18 @@ export function RoleManagementPanel() {
   const startEdit = (row: RoleItem) => {
     setEditingRoleId(row.id);
     setRoleName(row.name);
+    setFieldError("");
+    setSuccess("");
   };
 
   const remove = async (id: number) => {
     if (!window.confirm("Delete this role?")) return;
     try {
       setError("");
+      setSuccess("");
       await apiRequestWithRefresh(`/api/v1/access-control/roles/${id}/`, { method: "DELETE" });
       if (editingRoleId === id) resetForm();
+      setSuccess("Role deleted successfully.");
       await loadRoles();
     } catch {
       setError("Unable to delete role.");
@@ -142,6 +168,7 @@ export function RoleManagementPanel() {
       </div>
 
       {error && <div style={{ color: "var(--warning)", marginBottom: 10 }}>{error}</div>}
+      {success && <div style={{ color: "#16a34a", marginBottom: 10 }}>{success}</div>}
 
       <div style={{ display: "grid", gridTemplateColumns: "330px 1fr", gap: 12 }}>
         <div style={boxStyle()}>
@@ -149,7 +176,24 @@ export function RoleManagementPanel() {
           <form onSubmit={submit} style={{ display: "grid", gap: 10 }}>
             <label style={{ display: "grid", gap: 6 }}>
               <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 600 }}>NAME *</span>
-              <input value={roleName} onChange={(e) => setRoleName(e.target.value)} style={inputStyle()} />
+              <input
+                value={roleName}
+                onChange={(e) => {
+                  setRoleName(e.target.value);
+                  if (fieldError) setFieldError("");
+                  if (error) setError("");
+                }}
+                style={{
+                  ...inputStyle(),
+                  borderColor: fieldError ? "#dc2626" : "var(--line)",
+                  boxShadow: fieldError ? "0 0 0 2px rgba(220, 38, 38, 0.15)" : "none",
+                }}
+              />
+              {fieldError ? (
+                <span id="role-name-error" style={{ fontSize: 12, color: "#dc2626" }}>
+                  {fieldError}
+                </span>
+              ) : null}
             </label>
             <div style={{ display: "flex", gap: 8 }}>
               <button type="submit" disabled={saving} style={buttonStyle()}>

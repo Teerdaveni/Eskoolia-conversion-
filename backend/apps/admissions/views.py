@@ -302,7 +302,14 @@ class PostalReceiveEntryViewSet(AdminSectionRBACMixin, DuplicateSafeWriteMixin, 
     serializer_class = PostalReceiveEntrySerializer
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
-    permission_codes = {"*": "admin_section.postal_receive.view"}
+    permission_codes = {
+        "list": "admin_section.postal_receive.view",
+        "retrieve": "admin_section.postal_receive.view",
+        "create": "admin_section.postal_receive.add",
+        "update": "admin_section.postal_receive.edit",
+        "partial_update": "admin_section.postal_receive.edit",
+        "destroy": "admin_section.postal_receive.delete",
+    }
 
     def get_queryset(self):
         user = self.request.user
@@ -325,7 +332,14 @@ class PostalDispatchEntryViewSet(AdminSectionRBACMixin, DuplicateSafeWriteMixin,
     serializer_class = PostalDispatchEntrySerializer
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
-    permission_codes = {"*": "admin_section.postal_dispatch.view"}
+    permission_codes = {
+        "list": "admin_section.postal_dispatch.view",
+        "retrieve": "admin_section.postal_dispatch.view",
+        "create": "admin_section.postal_dispatch.add",
+        "update": "admin_section.postal_dispatch.edit",
+        "partial_update": "admin_section.postal_dispatch.edit",
+        "destroy": "admin_section.postal_dispatch.delete",
+    }
 
     def get_queryset(self):
         user = self.request.user
@@ -347,7 +361,14 @@ class PostalDispatchEntryViewSet(AdminSectionRBACMixin, DuplicateSafeWriteMixin,
 class PhoneCallLogEntryViewSet(AdminSectionRBACMixin, DuplicateSafeWriteMixin, viewsets.ModelViewSet):
     serializer_class = PhoneCallLogEntrySerializer
     permission_classes = [permissions.IsAuthenticated]
-    permission_codes = {"*": "admin_section.phone_call_log.view"}
+    permission_codes = {
+        "list": "admin_section.phone_call_log.view",
+        "retrieve": "admin_section.phone_call_log.view",
+        "create": "admin_section.phone_call_log.add",
+        "update": "admin_section.phone_call_log.edit",
+        "partial_update": "admin_section.phone_call_log.edit",
+        "destroy": "admin_section.phone_call_log.delete",
+    }
 
     def get_queryset(self):
         user = self.request.user
@@ -653,10 +674,14 @@ class CertificateTemplateViewSet(AdminSectionRBACMixin, DuplicateSafeWriteMixin,
         return Response({"is_student_role": False, "recipients": rows}, status=status.HTTP_200_OK)
 
 
-class CertificateReadOnlyViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class CertificateReadOnlyViewSet(AdminSectionRBACMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """Read-only API for listing and retrieving certificates."""
     serializer_class = CertificateTemplateSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {
+        "list": "admin_section.certificate.view",
+        "retrieve": "admin_section.certificate.view",
+    }
 
     def get_queryset(self):
         user = self.request.user
@@ -668,10 +693,14 @@ class CertificateReadOnlyViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixi
         return qs.none()
 
 
-class IdCardReadOnlyViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class IdCardReadOnlyViewSet(AdminSectionRBACMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """Read-only API for listing and retrieving ID card templates."""
     serializer_class = IdCardTemplateSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {
+        "list": "admin_section.id_card.view",
+        "retrieve": "admin_section.id_card.view",
+    }
 
     def get_queryset(self):
         user = self.request.user
