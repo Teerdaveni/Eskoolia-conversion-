@@ -47,8 +47,10 @@ class AdminSectionRBACMixin:
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         code = self._get_permission_code()
-        if not code:
-            return
+        # Enforce permission checks for all admin section operations (fail-safe)
+        # If no permission code is configured, deny access by default
+        if code is None:
+            raise PermissionDenied("This action requires specific permissions that are not configured.")
 
         user = request.user
         if user.is_superuser:
@@ -367,7 +369,14 @@ class PhoneCallLogEntryViewSet(AdminSectionRBACMixin, DuplicateSafeWriteMixin, v
 class AdminSetupEntryViewSet(AdminSectionRBACMixin, DuplicateSafeWriteMixin, viewsets.ModelViewSet):
     serializer_class = AdminSetupEntrySerializer
     permission_classes = [permissions.IsAuthenticated]
-    permission_codes = {"*": "admin_section.admin_setup.view"}
+    permission_codes = {
+        "list": "admin_section.admin_setup.view",
+        "retrieve": "admin_section.admin_setup.view",
+        "create": "admin_section.admin_setup.add",
+        "update": "admin_section.admin_setup.edit",
+        "partial_update": "admin_section.admin_setup.edit",
+        "destroy": "admin_section.admin_setup.delete",
+    }
 
     def get_queryset(self):
         user = self.request.user
@@ -391,7 +400,12 @@ class IdCardTemplateViewSet(AdminSectionRBACMixin, DuplicateSafeWriteMixin, view
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     permission_codes = {
-        "*": "admin_section.id_card.view",
+        "list": "admin_section.id_card.view",
+        "retrieve": "admin_section.id_card.view",
+        "create": "admin_section.id_card.add",
+        "update": "admin_section.id_card.edit",
+        "partial_update": "admin_section.id_card.edit",
+        "destroy": "admin_section.id_card.delete",
         "generate_setup": "admin_section.id_card.view",
         "recipients": "admin_section.id_card.view",
     }
@@ -517,10 +531,10 @@ class CertificateTemplateViewSet(AdminSectionRBACMixin, DuplicateSafeWriteMixin,
     permission_codes = {
         "list": "admin_section.certificate.view",
         "retrieve": "admin_section.certificate.view",
-        "create": "admin_section.certificate.view",
-        "update": "admin_section.certificate.view",
-        "partial_update": "admin_section.certificate.view",
-        "destroy": "admin_section.certificate.view",
+        "create": "admin_section.certificate.add",
+        "update": "admin_section.certificate.edit",
+        "partial_update": "admin_section.certificate.edit",
+        "destroy": "admin_section.certificate.delete",
         "generate_setup": "admin_section.generate_certificate.view",
         "recipients": "admin_section.generate_certificate.view",
     }
