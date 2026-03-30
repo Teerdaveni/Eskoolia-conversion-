@@ -129,13 +129,14 @@ class VisitorBookEntrySerializer(serializers.ModelSerializer):
     purpose_name = serializers.SerializerMethodField(read_only=True)
     file_upload = serializers.FileField(write_only=True, required=False, allow_null=True)
     file_url = serializers.SerializerMethodField(read_only=True)
+    purpose = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = VisitorBookEntry
+                    "purpose",
         fields = [
             "id",
             "school",
-            "purpose",
             "purpose_name",
             "name",
             "phone",
