@@ -4,8 +4,9 @@ from datetime import date, datetime
 from io import BytesIO, StringIO
 
 from django.http import HttpResponse
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from rest_framework import permissions, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -75,7 +76,13 @@ class StudentAttendanceListCreateAPIView(AttendanceTenantMixin, APIView):
     def post(self, request):
         serializer = StudentAttendanceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(school=request.user.school)
+        try:
+            serializer.save(school=request.user.school)
+        except IntegrityError:
+            return Response(
+                {"detail": "Attendance already exists for this student on the selected date."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 

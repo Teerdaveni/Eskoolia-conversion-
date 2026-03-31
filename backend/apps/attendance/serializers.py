@@ -3,6 +3,31 @@ from .models import StudentAttendance, SubjectAttendance
 
 
 class StudentAttendanceSerializer(serializers.ModelSerializer):
+    def validate(self, attrs):
+        request = self.context.get("request")
+        school = attrs.get("school") or getattr(getattr(request, "user", None), "school", None)
+        student = attrs.get("student") or getattr(self.instance, "student", None)
+        attendance_date = attrs.get("attendance_date") or getattr(self.instance, "attendance_date", None)
+        academic_year = attrs.get("academic_year")
+        if academic_year is None and self.instance is not None:
+            academic_year = getattr(self.instance, "academic_year", None)
+
+        if school and student and attendance_date:
+            queryset = StudentAttendance.objects.filter(
+                school=school,
+                student=student,
+                attendance_date=attendance_date,
+                academic_year=academic_year,
+            )
+            if self.instance:
+                queryset = queryset.exclude(id=self.instance.id)
+            if queryset.exists():
+                raise serializers.ValidationError(
+                    {"detail": "Attendance already exists for this student on the selected date."}
+                )
+
+        return attrs
+
     class Meta:
         model = StudentAttendance
         fields = [

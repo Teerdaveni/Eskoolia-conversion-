@@ -21,6 +21,7 @@ type StudentRow = {
 
 type SchoolClass = { id: number; name: string };
 type Section = { id: number; school_class: number; name: string };
+type PaginatedResponse<T> = { results: T[]; next: string | null; previous?: string | null };
 
 function listData<T>(value: ApiList<T>): T[] {
   return Array.isArray(value) ? value : value.results || [];
@@ -28,6 +29,38 @@ function listData<T>(value: ApiList<T>): T[] {
 
 async function apiGet<T>(path: string): Promise<T> {
   return apiRequestWithRefresh<T>(path, { headers: { "Content-Type": "application/json" } });
+}
+
+function toRelativeApiPath(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return url;
+  }
+}
+
+function isPaginatedResponse<T>(value: unknown): value is PaginatedResponse<T> {
+  return !!value && typeof value === "object" && "results" in value && "next" in value;
+}
+
+async function fetchAllStudents(): Promise<StudentRow[]> {
+  const aggregated: StudentRow[] = [];
+  let nextPath: string | null = "/api/v1/students/students/?page=1";
+
+  while (nextPath) {
+    const payload: ApiList<StudentRow> | PaginatedResponse<StudentRow> =
+      await apiGet<ApiList<StudentRow> | PaginatedResponse<StudentRow>>(nextPath);
+    if (isPaginatedResponse<StudentRow>(payload)) {
+      aggregated.push(...(payload.results || []));
+      nextPath = payload.next ? toRelativeApiPath(payload.next) : null;
+      continue;
+    }
+
+    return listData(payload);
+  }
+
+  return aggregated;
 }
 
 function buttonStyle() {
@@ -86,11 +119,11 @@ export function StudentExportPanel() {
         setLoading(true);
         setError("");
         const [studentData, classData, sectionData] = await Promise.all([
-          apiGet<ApiList<StudentRow>>("/api/v1/students/students/"),
+          fetchAllStudents(),
           apiGet<ApiList<SchoolClass>>("/api/v1/core/classes/"),
           apiGet<ApiList<Section>>("/api/v1/core/sections/"),
         ]);
-        setStudents(listData(studentData));
+        setStudents(studentData);
         setClasses(listData(classData));
         setSections(listData(sectionData));
       } catch {
