@@ -36,10 +36,11 @@ pip install -q -r requirements.txt
 echo "Running database migrations..."
 python manage.py migrate --quiet
 
-# Start backend server in background
+# Start backend server in background with Daphne ASGI server (required for WebSocket support)
 echo "Launching backend on http://localhost:8000"
 echo "API Documentation: http://localhost:8000/api/docs/"
-python manage.py runserver 0.0.0.0:8000 &
+echo "WebSocket Chat: ws://localhost:8000/ws/chat/"
+daphne -b 0.0.0.0 -p 8000 config.asgi:application &
 BACKEND_PID=$!
 
 echo ""

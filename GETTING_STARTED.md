@@ -16,9 +16,9 @@ cd c:\xampp\htdocs\upload\rewrite
 
 This will automatically:
 - ✅ Create Python virtual environment
-- ✅ Install backend dependencies
+- ✅ Install backend dependencies (including Daphne ASGI server)
 - ✅ Run database migrations
-- ✅ Start Django backend on http://localhost:8000
+- ✅ Start Django backend with ASGI server on http://localhost:8000 (supports WebSockets)
 - ✅ Install frontend dependencies (if needed)
 - ✅ Start Next.js frontend on http://localhost:3000 (or 3001)
 
@@ -44,6 +44,7 @@ Once both servers are running:
 | Service | URL | Purpose |
 |---------|-----|---------|
 | **Backend API** | http://localhost:8000/api/ | REST API endpoints |
+| **WebSocket Chat** | ws://localhost:8000/ws/chat/ | Real-time messaging |
 | **API Docs (Swagger)** | http://localhost:8000/api/docs/ | Interactive API documentation |
 | **API Docs (ReDoc)** | http://localhost:8000/api/redoc/ | Alternative API documentation |
 | **Frontend** | http://localhost:3000 | React/Next.js web interface |

@@ -39,6 +39,29 @@ class TenantQueryMixin:
         serializer.save(school=self.request.user.school)
 
 
+class PermissionScopedViewSet(viewsets.ModelViewSet):
+    permission_codes = {}
+
+    def get_required_permission_code(self):
+        action = getattr(self, "action", None)
+        if action and action in self.permission_codes:
+            return self.permission_codes[action]
+        return self.permission_codes.get("*")
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        code = self.get_required_permission_code()
+        if not code:
+            return
+
+        user = request.user
+        if user.is_superuser:
+            return
+
+        if not hasattr(user, "has_permission_code") or not user.has_permission_code(code):
+            raise PermissionDenied("You do not have permission to perform this action.")
+
+
 class AcademicYearViewSet(TenantQueryMixin, viewsets.ModelViewSet):
     model = AcademicYear
     serializer_class = AcademicYearSerializer
@@ -100,10 +123,11 @@ class ClassRoomViewSet(TenantQueryMixin, viewsets.ModelViewSet):
 
 
 # ===== TRANSPORT MODULE VIEWSETS =====
-class VehicleViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+class VehicleViewSet(TenantQueryMixin, PermissionScopedViewSet):
     model = Vehicle
     serializer_class = VehicleSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "transport.vehicle.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -127,10 +151,11 @@ class VehicleViewSet(TenantQueryMixin, viewsets.ModelViewSet):
         serializer.save(school=school, academic_year=academic_year)
 
 
-class TransportRouteViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+class TransportRouteViewSet(TenantQueryMixin, PermissionScopedViewSet):
     model = TransportRoute
     serializer_class = TransportRouteSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "transport.route.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -154,10 +179,11 @@ class TransportRouteViewSet(TenantQueryMixin, viewsets.ModelViewSet):
         serializer.save(school=school, academic_year=academic_year)
 
 
-class AssignVehicleViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+class AssignVehicleViewSet(TenantQueryMixin, PermissionScopedViewSet):
     model = AssignVehicle
     serializer_class = AssignVehicleSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "transport.assign_vehicle.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -182,40 +208,44 @@ class AssignVehicleViewSet(TenantQueryMixin, viewsets.ModelViewSet):
 
 
 # ===== INVENTORY MODULE VIEWSETS =====
-class ItemCategoryViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+class ItemCategoryViewSet(TenantQueryMixin, PermissionScopedViewSet):
     model = ItemCategory
     serializer_class = ItemCategorySerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "inventory.item_category.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset()
         return queryset.order_by("title")
 
 
-class ItemStoreViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+class ItemStoreViewSet(TenantQueryMixin, PermissionScopedViewSet):
     model = ItemStore
     serializer_class = ItemStoreSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "inventory.item_store.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset()
         return queryset.order_by("title")
 
 
-class SupplierViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+class SupplierViewSet(TenantQueryMixin, PermissionScopedViewSet):
     model = Supplier
     serializer_class = SupplierSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "inventory.supplier.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset()
         return queryset.order_by("name")
 
 
-class ItemViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+class ItemViewSet(TenantQueryMixin, PermissionScopedViewSet):
     model = Item
     serializer_class = ItemSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "inventory.item.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -228,10 +258,11 @@ class ItemViewSet(TenantQueryMixin, viewsets.ModelViewSet):
         serializer.save(school=school)
 
 
-class ItemReceiveViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+class ItemReceiveViewSet(TenantQueryMixin, PermissionScopedViewSet):
     model = ItemReceive
     serializer_class = ItemReceiveSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "inventory.item_receive.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -244,10 +275,11 @@ class ItemReceiveViewSet(TenantQueryMixin, viewsets.ModelViewSet):
         serializer.save(school=school, created_by=self.request.user)
 
 
-class ItemIssueViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+class ItemIssueViewSet(TenantQueryMixin, PermissionScopedViewSet):
     model = ItemIssue
     serializer_class = ItemIssueSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "inventory.item_issue.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -260,10 +292,11 @@ class ItemIssueViewSet(TenantQueryMixin, viewsets.ModelViewSet):
         serializer.save(school=school, issued_by=self.request.user)
 
 
-class ItemSellViewSet(TenantQueryMixin, viewsets.ModelViewSet):
+class ItemSellViewSet(TenantQueryMixin, PermissionScopedViewSet):
     model = ItemSell
     serializer_class = ItemSellSerializer
     permission_classes = [permissions.IsAuthenticated]
+    permission_codes = {"*": "inventory.item_sell.view"}
 
     def get_queryset(self):
         queryset = super().get_queryset()

@@ -59,13 +59,16 @@ function findActiveId(items: SidebarItem[], pathname: string): string {
 function routeToPermissionPrefixes(route?: string): string[] {
   if (!route) return [];
   if (route.startsWith("/roles")) return ["access_control", "role_permission", "system_settings"];
-  if (route.startsWith("/administration") || route.startsWith("/admissions")) return ["admissions", "admin", "administration"];
-  if (route.startsWith("/students")) return ["students"];
-  if (route.startsWith("/attendance")) return ["attendance"];
-  if (route.startsWith("/academics") || route.startsWith("/lesson") || route.startsWith("/setup")) return ["academics", "core", "settings"];
-  if (route.startsWith("/exams")) return ["exams", "exam"];
+  if (route.startsWith("/administration") || route.startsWith("/admissions")) return ["admin_section", "admissions"];
+  if (route.startsWith("/students")) return ["student_info", "students"];
+  if (route.startsWith("/attendance")) return ["student_info", "attendance"];
+  if (route.startsWith("/academics") || route.startsWith("/lesson") || route.startsWith("/setup")) return ["academics", "core", "settings", "settings_section"];
+  if (route.startsWith("/exams")) return ["examination", "exams", "exam"];
   if (route.startsWith("/fees")) return ["fees"];
   if (route.startsWith("/library")) return ["library"];
+  if (route.startsWith("/transport")) return ["transport"];
+  if (route.startsWith("/inventory")) return ["inventory"];
+  if (route.startsWith("/utilities")) return ["utilities"];
   if (route.startsWith("/hr")) return ["hr", "human_resource"];
   if (route.startsWith("/finance")) return ["finance", "accounts"];
   return [];

@@ -391,7 +391,8 @@ class LoginAccessControlViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="reset-password")
     def reset_password(self, request):
         user_id = request.data.get("user_id") or request.data.get("id")
-        new_password = request.data.get("password") or "123456"
+        use_default = _coerce_bool(request.data.get("default_password"))
+        new_password = "123456" if use_default else (request.data.get("password") or "123456")
         if not user_id:
             return Response({"detail": "user_id is required."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -404,7 +405,14 @@ class LoginAccessControlViewSet(viewsets.ViewSet):
 
         user.set_password(str(new_password))
         user.save(update_fields=["password"])
-        return Response({"detail": "Password updated.", "user_id": user.id}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "detail": "Password updated.",
+                "user_id": user.id,
+                "default_password": "123456" if use_default else None,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class DueFeesLoginPermissionViewSet(viewsets.ViewSet):

@@ -1,3 +1,4 @@
+from django.utils.html import strip_tags
 from rest_framework import serializers
 from .models import (
     Guardian,
@@ -12,6 +13,17 @@ from .models import (
 
 
 class StudentCategorySerializer(serializers.ModelSerializer):
+    def validate_name(self, value):
+        request = self.context.get("request")
+        school_id = getattr(getattr(request, "user", None), "school_id", None)
+        if school_id:
+            queryset = StudentCategory.objects.filter(school_id=school_id, name__iexact=value.strip())
+            if self.instance:
+                queryset = queryset.exclude(id=self.instance.id)
+            if queryset.exists():
+                raise serializers.ValidationError("A category with this name already exists.")
+        return value
+
     class Meta:
         model = StudentCategory
         fields = ["id", "school", "name", "description", "created_at"]
@@ -20,6 +32,17 @@ class StudentCategorySerializer(serializers.ModelSerializer):
 
 class StudentGroupSerializer(serializers.ModelSerializer):
     students_count = serializers.IntegerField(read_only=True)
+
+    def validate_name(self, value):
+        request = self.context.get("request")
+        school_id = getattr(getattr(request, "user", None), "school_id", None)
+        if school_id:
+            queryset = StudentGroup.objects.filter(school_id=school_id, name__iexact=value.strip())
+            if self.instance:
+                queryset = queryset.exclude(id=self.instance.id)
+            if queryset.exists():
+                raise serializers.ValidationError("A group with this name already exists.")
+        return value
 
     class Meta:
         model = StudentGroup
@@ -117,6 +140,29 @@ class StudentSerializer(serializers.ModelSerializer):
     documents = StudentDocumentSerializer(many=True, read_only=True)
     transport_route_title = serializers.CharField(source="transport_route.title", read_only=True, allow_null=True)
     vehicle_no = serializers.CharField(source="vehicle.vehicle_no", read_only=True, allow_null=True)
+
+    def _validate_plain_text_name(self, value, field_label):
+        cleaned = strip_tags((value or "").strip())
+        if cleaned != (value or "").strip():
+            raise serializers.ValidationError(f"{field_label} cannot contain HTML tags.")
+        return value
+
+    def validate_first_name(self, value):
+        return self._validate_plain_text_name(value, "First name")
+
+    def validate_last_name(self, value):
+        return self._validate_plain_text_name(value, "Last name")
+
+    def validate_admission_no(self, value):
+        request = self.context.get("request")
+        school_id = getattr(getattr(request, "user", None), "school_id", None)
+        if school_id:
+            queryset = Student.objects.filter(school_id=school_id, admission_no__iexact=value.strip())
+            if self.instance:
+                queryset = queryset.exclude(id=self.instance.id)
+            if queryset.exists():
+                raise serializers.ValidationError("Admission number already exists.")
+        return value
 
     class Meta:
         model = Student

@@ -104,75 +104,11 @@ export const sidebarMenu: SidebarItem[] = [
     id: "reports",
     name: "Reports",
     children: [
-      {
-        id: "reports-student-info",
-        name: "Student Info",
-        children: [
-          { id: "student-report", name: "Student Report", route: "/reports/students/student-report" },
-          { id: "guardian-report", name: "Guardian Report", route: "/reports/students/guardian-report" },
-        ],
-      },
-      {
-        id: "reports-fees",
-        name: "Fees",
-        children: [
-          { id: "balance-fees-report", name: "Balance Fees Report", route: "/reports/fees/balance-fees-report" },
-          { id: "collection-report", name: "Collection Report", route: "/reports/fees/collection-report" },
-          { id: "student-fine-report", name: "Student Fine Report", route: "/reports/fees/student-fine-report" },
-        ],
-      },
-      {
-        id: "reports-academics",
-        name: "Academics",
-        children: [
-          { id: "class-report", name: "Class Report", route: "/reports/academics/class-report" },
-          { id: "class-routine-report", name: "Class Routine Report", route: "/reports/academics/class-routine-report" },
-        ],
-      },
-      {
-        id: "reports-examination",
-        name: "Examination",
-        children: [
-          { id: "exam-routine-report", name: "Exam Routine Report", route: "/reports/examination/exam-routine-report" },
-          {
-            id: "teacher-class-routine-report",
-            name: "Teacher Class Routine Report",
-            route: "/reports/examination/teacher-class-routine-report",
-          },
-          { id: "merit-list-report", name: "Merit List Report", route: "/reports/examination/merit-list-report" },
-          { id: "online-exam-report", name: "Online Exam Report", route: "/reports/examination/online-exam-report" },
-          {
-            id: "mark-sheet-report-student",
-            name: "Mark Sheet Report Student",
-            route: "/reports/examination/mark-sheet-report-student",
-          },
-          {
-            id: "tabulation-sheet-report",
-            name: "Tabulation Sheet Report",
-            route: "/reports/examination/tabulation-sheet-report",
-          },
-          { id: "progress-card-report", name: "Progress Card Report", route: "/reports/examination/progress-card-report" },
-        ],
-      },
-      {
-        id: "reports-accounts",
-        name: "Accounts",
-        children: [{ id: "payroll-report", name: "Payroll Report", route: "/reports/accounts/payroll-report" }],
-      },
-      {
-        id: "reports-dormitory",
-        name: "Dormitory",
-        children: [
-          { id: "student-dormitory-report", name: "Student Dormitory Report", route: "/reports/dormitory/student-dormitory-report" },
-        ],
-      },
-      {
-        id: "reports-transport",
-        name: "Transport",
-        children: [
-          { id: "student-transport-report", name: "Student Transport Report", route: "/reports/transport/student-transport-report" },
-        ],
-      },
+      { id: "student-report", name: "Student Report", route: "/reports/student" },
+      { id: "exam-report", name: "Exam Report", route: "/reports/exam" },
+      { id: "staff-report", name: "Staff Report", route: "/reports/staff" },
+      { id: "fees-report", name: "Fees Report", route: "/reports/fees" },
+      { id: "accounts-report", name: "Accounts Report", route: "/reports/accounts" },
     ],
   },
   {
@@ -260,6 +196,14 @@ export const sidebarMenu: SidebarItem[] = [
       { id: "bank-accounts", name: "Bank Accounts", route: "/finance/bank-accounts" },
       { id: "ledger-entries", name: "Ledger Entries", route: "/finance/ledger" },
       { id: "fund-transfer", name: "Fund Transfer", route: "/finance/fund-transfer" },
+    ],
+  },
+  {
+    id: "utilities",
+    name: "Utilities",
+    children: [
+      { id: "chat", name: "Chat", route: "/utilities/chat" },
+      { id: "communication", name: "Communication", route: "/utilities/communication" },
     ],
   },
   {

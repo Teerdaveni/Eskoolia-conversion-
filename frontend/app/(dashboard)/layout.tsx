@@ -1,6 +1,6 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
-import { AuthGate } from "@/components/layout/AuthGate";
+import AuthGate from "@/components/layout/AuthGate";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (

@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from .serializers import LoginTokenObtainPairSerializer
 
 
 class HealthView(APIView):
@@ -14,7 +15,7 @@ class HealthView(APIView):
 
 
 class LoginView(TokenObtainPairView):
-    pass
+    serializer_class = LoginTokenObtainPairSerializer
 
 
 class RefreshView(TokenRefreshView):

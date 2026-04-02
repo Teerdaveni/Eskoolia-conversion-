@@ -3,9 +3,14 @@ Custom Exception Handler for Django REST Framework.
 Provides standardized error responses across the API.
 """
 
+import logging
+
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.exceptions import APIException, ValidationError as DRFValidationError
+
+
+logger = logging.getLogger(__name__)
 
 
 def _first_error_message(detail):
@@ -85,6 +90,7 @@ def custom_exception_handler(exc, context):
     
     # Handle generic exceptions
     else:
+        logger.exception("Unhandled exception in API", exc_info=exc)
         return Response(
             {
                 "success": False,

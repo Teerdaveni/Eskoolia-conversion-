@@ -34,10 +34,11 @@ REM Run migrations
 echo Running database migrations...
 python manage.py migrate --quiet
 
-REM Start backend server in a new window
+REM Start backend server in a new window with Daphne ASGI server (required for WebSocket support)
 echo Launching backend on http://localhost:8000
 echo API Documentation: http://localhost:8000/api/docs/
-start "School ERP Backend" cmd /k "python manage.py runserver 0.0.0.0:8000"
+echo WebSocket Chat: ws://localhost:8000/ws/chat/
+start "School ERP Backend" cmd /k "daphne -b 0.0.0.0 -p 8000 config.asgi:application"
 
 echo.
 echo Starting Frontend (Next.js)...

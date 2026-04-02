@@ -42,48 +42,6 @@ async function apiDelete(path: string): Promise<void> {
   });
 }
 
-function fieldStyle() {
-  return {
-    width: "100%",
-    height: 36,
-    border: "1px solid var(--line)",
-    borderRadius: 8,
-    padding: "0 10px",
-  } as const;
-}
-
-function textareaStyle() {
-  return {
-    width: "100%",
-    minHeight: 96,
-    border: "1px solid var(--line)",
-    borderRadius: 8,
-    padding: "10px",
-    resize: "vertical" as const,
-  };
-}
-
-function buttonStyle(color = "var(--primary)") {
-  return {
-    height: 34,
-    border: `1px solid ${color}`,
-    background: color,
-    color: "#fff",
-    borderRadius: 8,
-    padding: "0 10px",
-    cursor: "pointer",
-  } as const;
-}
-
-function boxStyle() {
-  return {
-    background: "var(--surface)",
-    border: "1px solid var(--line)",
-    borderRadius: "var(--radius)",
-    padding: 16,
-  } as const;
-}
-
 export function StudentCategoryPanel() {
   const [rows, setRows] = useState<StudentCategory[]>([]);
   const [name, setName] = useState("");
@@ -163,9 +121,9 @@ export function StudentCategoryPanel() {
     <div className="legacy-panel">
       <section className="sms-breadcrumb mb-20">
         <div className="container-fluid">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h1 style={{ margin: 0, fontSize: 24 }}>Student Category</h1>
-            <div style={{ display: "flex", gap: 8, color: "var(--text-muted)", fontSize: 13 }}>
+          <div className="student-maint-header">
+            <h1 className="student-maint-title">Student Category</h1>
+            <div className="student-maint-crumbs">
               <span>Dashboard</span>
               <span>/</span>
               <span>Student Information</span>
@@ -179,42 +137,44 @@ export function StudentCategoryPanel() {
       <section className="admin-visitor-area up_st_admin_visitor">
         <div className="container-fluid p-0">
           {editingId && (
-            <div className="row" style={{ marginBottom: 12 }}>
-              <div style={{ marginLeft: "auto" }}>
-                <button type="button" style={buttonStyle()} onClick={resetForm}>
+            <div className="row student-maint-add-row">
+              <div className="student-maint-add-wrap">
+                <button type="button" className="student-btn student-btn-primary" onClick={resetForm}>
                   + Add
                 </button>
               </div>
             </div>
           )}
 
-          <div className="row" style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 12 }}>
+          <div className="student-maint-layout">
             <div className="col-lg-3">
-              <div className="white-box" style={boxStyle()}>
-                <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Student Category" : "Add Student Category"}</h3>
-                <form onSubmit={submit} style={{ display: "grid", gap: 10 }}>
+              <div className="white-box student-maint-form">
+                <h3>{editingId ? "Edit Student Category" : "Add Student Category"}</h3>
+                <form onSubmit={submit} className="student-maint-grid">
                   <div>
-                    <label style={{ display: "block", fontSize: 13, marginBottom: 6 }}>Type *</label>
+                    <label className="student-maint-label" htmlFor="student-category-name">Type *</label>
                     <input
+                      id="student-category-name"
                       value={name}
                       onChange={(event) => setName(event.target.value)}
                       placeholder="Category"
-                      style={fieldStyle()}
+                      className="student-maint-input"
                     />
                   </div>
 
                   <div>
-                    <label style={{ display: "block", fontSize: 13, marginBottom: 6 }}>Description</label>
+                    <label className="student-maint-label" htmlFor="student-category-description">Description</label>
                     <textarea
+                      id="student-category-description"
                       value={description}
                       onChange={(event) => setDescription(event.target.value)}
                       placeholder="Optional description"
-                      style={textareaStyle()}
+                      className="student-maint-textarea"
                     />
                   </div>
 
-                  <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
-                    <button type="submit" disabled={saving} style={buttonStyle()}>
+                  <div className="student-maint-actions">
+                    <button type="submit" disabled={saving} className="student-btn student-btn-primary">
                       {saving ? "Saving..." : editingId ? "Update Category" : "Save Category"}
                     </button>
                   </div>
@@ -223,35 +183,35 @@ export function StudentCategoryPanel() {
             </div>
 
             <div className="col-lg-9">
-              <div className="white-box" style={boxStyle()}>
-                <h3 style={{ marginTop: 0, marginBottom: 12 }}>Student Category List</h3>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <div className="white-box student-maint-list">
+                <h3>Student Category List</h3>
+                <div className="student-maint-table-wrap">
+                  <table className="student-maint-table">
                     <thead>
                       <tr>
-                        <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>SL</th>
-                        <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Category</th>
-                        <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th>
+                        <th>SL</th>
+                        <th>Category</th>
+                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rows.length === 0 ? (
                         <tr>
-                          <td colSpan={3} style={{ padding: 12, color: "var(--text-muted)" }}>
+                          <td colSpan={3} className="student-maint-empty">
                             No categories found.
                           </td>
                         </tr>
                       ) : (
                         rows.map((row, index) => (
                           <tr key={row.id}>
-                            <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{index + 1}</td>
-                            <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
-                            <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                              <div style={{ display: "flex", gap: 6 }}>
-                                <button type="button" style={buttonStyle("#0ea5e9")} onClick={() => onEdit(row)}>
+                            <td>{index + 1}</td>
+                            <td>{row.name}</td>
+                            <td>
+                              <div className="student-maint-row-actions">
+                                <button type="button" className="student-btn student-btn-info" onClick={() => onEdit(row)}>
                                   Edit
                                 </button>
-                                <button type="button" style={buttonStyle("#dc2626")} onClick={() => void onDelete(row)}>
+                                <button type="button" className="student-btn student-btn-danger" onClick={() => void onDelete(row)}>
                                   Delete
                                 </button>
                               </div>
@@ -263,7 +223,7 @@ export function StudentCategoryPanel() {
                   </table>
                 </div>
 
-                {error && <p style={{ color: "var(--warning)", marginTop: 10 }}>{error}</p>}
+                {error && <p className="student-maint-error">{error}</p>}
               </div>
             </div>
           </div>

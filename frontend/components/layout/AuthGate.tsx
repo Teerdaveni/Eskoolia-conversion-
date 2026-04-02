@@ -5,7 +5,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAuthTokens, getAccessToken, getRefreshToken, setAuthTokens } from "@/lib/auth";
 
-export function AuthGate({ children }: { children: ReactNode }) {
+type AuthGateProps = { children: ReactNode };
+
+export default function AuthGate({ children }: AuthGateProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [ready, setReady] = useState(false);

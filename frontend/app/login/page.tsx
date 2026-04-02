@@ -62,14 +62,14 @@ export default function LoginPage() {
       >
         <h1 style={{ marginTop: 0, marginBottom: 6, fontSize: 24 }}>Sign in</h1>
         <p style={{ marginTop: 0, marginBottom: 16, color: "var(--text-muted)" }}>
-          Use your school ERP account to manage modules.
+          Use username, email, or phone with your school ERP password.
         </p>
 
         <form onSubmit={submit} style={{ display: "grid", gap: 10 }}>
           <input
             value={username}
             onChange={(event) => setUsername(event.target.value)}
-            placeholder="Username"
+            placeholder="Username / Email / Phone"
             style={{ height: 40, borderRadius: 8, border: "1px solid var(--line)", padding: "0 10px" }}
           />
           <input

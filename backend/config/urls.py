@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.conf import settings
+from django.conf.urls.static import static
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from apps.users.views import HealthView
@@ -24,4 +26,9 @@ urlpatterns = [
     path("api/v1/library/", include("apps.library.urls")),
     path("api/v1/behaviour/", include("apps.behaviour.urls")),
     path("api/v1/reports/", include("apps.reports.urls")),
+    path("api/chat/", include("apps.chat.urls")),
+    path("api/v1/utilities/communication/", include("apps.communication.urls")),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

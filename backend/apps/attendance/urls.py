@@ -23,6 +23,11 @@ from .subject_views import (
 )
 
 urlpatterns = [
+	# Legacy aliases expected by older UAT/API scripts.
+	path("student/", StudentAttendanceIndexAPIView.as_view(), name="student-attendance-legacy-index"),
+	path("student/import/", StudentAttendanceImportAPIView.as_view(), name="student-attendance-legacy-import"),
+	path("subject-attendance/", SubjectAttendanceIndexAPIView.as_view(), name="subject-attendance-legacy-index"),
+
 	path("student-attendance/", StudentAttendanceListCreateAPIView.as_view(), name="student-attendance-list-create"),
 	path("student-attendance/<int:pk>/", StudentAttendanceRetrieveUpdateDeleteAPIView.as_view(), name="student-attendance-detail"),
 	path("student-attendance/index/", StudentAttendanceIndexAPIView.as_view(), name="student-attendance-index"),

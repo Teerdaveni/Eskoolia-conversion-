@@ -1,4 +1,5 @@
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models.deletion import ProtectedError
 from django.db.models import Count
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -68,6 +69,24 @@ class TenantScopedModelViewSet(viewsets.ModelViewSet):
             return
         # Superuser without school can provide school explicitly in payload
         serializer.save()
+
+    def create(self, request, *args, **kwargs):
+        try:
+            return super().create(request, *args, **kwargs)
+        except IntegrityError:
+            raise ValidationError({"detail": "Duplicate value violates a uniqueness constraint."})
+
+    def update(self, request, *args, **kwargs):
+        try:
+            return super().update(request, *args, **kwargs)
+        except IntegrityError:
+            raise ValidationError({"detail": "Duplicate value violates a uniqueness constraint."})
+
+    def partial_update(self, request, *args, **kwargs):
+        try:
+            return super().partial_update(request, *args, **kwargs)
+        except IntegrityError:
+            raise ValidationError({"detail": "Duplicate value violates a uniqueness constraint."})
 
 
 class StudentCategoryViewSet(TenantScopedModelViewSet):
@@ -189,6 +208,19 @@ class StudentViewSet(TenantScopedModelViewSet):
                 promoted_count += 1
 
         return Response({"promoted": promoted_count}, status=status.HTTP_200_OK)
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except (ProtectedError, IntegrityError):
+            raise ValidationError(
+                {
+                    "detail": (
+                        "This student cannot be deleted because related records exist "
+                        "(attendance, exam, fees, or other dependent data)."
+                    )
+                }
+            )
 
 
 class StudentDocumentViewSet(TenantScopedModelViewSet):

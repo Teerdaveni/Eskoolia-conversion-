@@ -168,7 +168,7 @@ export function LoginPermissionPanel() {
       await apiRequestWithRefresh("/api/v1/access-control/login-access-control/reset-password/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, password }),
+        body: JSON.stringify({ user_id: userId, password, default_password: defaultPassword }),
       });
 
       setMessage(defaultPassword ? "Password reset to 123456." : "Password updated.");
@@ -337,6 +337,7 @@ export function LoginPermissionPanel() {
                         <button type="button" onClick={() => void resetPassword(row.user_id, true)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
                           Default
                         </button>
+                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Default = 123456</span>
                       </div>
                     </td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
@@ -367,6 +368,7 @@ export function LoginPermissionPanel() {
                           <button type="button" onClick={() => void resetPassword(row.parent_user_id!, true)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
                             Default
                           </button>
+                          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Default = 123456</span>
                         </div>
                       ) : (
                         <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Not linked</span>
@@ -402,6 +404,7 @@ export function LoginPermissionPanel() {
                         <button type="button" onClick={() => void resetPassword(row.user_id, true)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
                           Default
                         </button>
+                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Default = 123456</span>
                       </div>
                     </td>
                   </>

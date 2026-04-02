@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "channels",
     "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
@@ -36,6 +37,8 @@ INSTALLED_APPS = [
     "apps.hr",
     "apps.library",
     "apps.behaviour",
+    "apps.chat",
+    "apps.communication",
     "apps.reports",
 ]
 
@@ -72,6 +75,12 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}
+
 DB_ENGINE = os.getenv("DB_ENGINE", "django.db.backends.sqlite3")
 
 DATABASES = {
@@ -98,6 +107,8 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "users.User"
@@ -131,6 +142,26 @@ SPECTACULAR_SETTINGS = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
+
+# JWT Configuration for longer token lifespan
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": os.getenv("JWT_ACCESS_TOKEN_LIFETIME", default=24 * 60),  # 24 hours (in minutes)
+    "REFRESH_TOKEN_LIFETIME": os.getenv("JWT_REFRESH_TOKEN_LIFETIME", default=30 * 24 * 60),  # 30 days
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
+}
+
+# Convert minutes to timedelta for django-rest-simplejwt
+from datetime import timedelta
+try:
+    SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"] = timedelta(
+        minutes=int(SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"])
+    )
+    SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"] = timedelta(
+        minutes=int(SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"])
+    )
+except (ValueError, TypeError):
+    pass
 
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
