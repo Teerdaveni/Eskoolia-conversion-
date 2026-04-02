@@ -147,7 +147,7 @@ export function StudentCategoryPanel() {
           )}
 
           <div className="student-maint-layout">
-            <div className="col-lg-3">
+            <div>
               <div className="white-box student-maint-form">
                 <h3>{editingId ? "Edit Student Category" : "Add Student Category"}</h3>
                 <form onSubmit={submit} className="student-maint-grid">
@@ -182,7 +182,7 @@ export function StudentCategoryPanel() {
               </div>
             </div>
 
-            <div className="col-lg-9">
+            <div>
               <div className="white-box student-maint-list">
                 <h3>Student Category List</h3>
                 <div className="student-maint-table-wrap">
