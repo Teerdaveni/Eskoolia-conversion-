@@ -4,10 +4,31 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiRequestWithRefresh } from "@/lib/api-auth";
 
-type ApiList<T> = T[] | { results?: T[] };
+type ApiList<T> = T[] | { results?: T[]; data?: T[] };
 
 function listData<T>(value: ApiList<T>): T[] {
-  return Array.isArray(value) ? value : value.results || [];
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  const payload = value as unknown as { data?: unknown; results?: unknown };
+  if (Array.isArray(payload.data)) {
+    return payload.data as T[];
+  }
+  if (payload.data && typeof payload.data === "object") {
+    const nested = payload.data as { data?: unknown; results?: unknown };
+    if (Array.isArray(nested.data)) {
+      return nested.data as T[];
+    }
+    if (Array.isArray(nested.results)) {
+      return nested.results as T[];
+    }
+  }
+  if (Array.isArray(payload.results)) {
+    return payload.results as T[];
+  }
+
+  return [];
 }
 
 async function apiGet<T>(path: string): Promise<T> {
@@ -104,6 +125,7 @@ type Staff = {
   bank_account_no: string;
   bank_name: string;
   bank_branch: string;
+  bank_mobile_no: string;
   contract_type: "permanent" | "contract" | "";
   location: string;
   facebook_url: string;
@@ -112,6 +134,10 @@ type Staff = {
   instagram_url: string;
   resume: string;
   joining_letter: string;
+  tenth_certificate: string;
+  eleventh_certificate: string;
+  aadhar_card: string;
+  driving_license_doc: string;
   other_document: string;
   casual_leave: number;
   medical_leave: number;
@@ -122,6 +148,27 @@ type Staff = {
   join_date: string;
   basic_salary: string;
   status: "active" | "inactive" | "terminated";
+};
+
+type Student = {
+  id: number;
+  admission_no: string;
+  first_name: string;
+  last_name: string;
+  is_active: boolean;
+  current_class?: number | null;
+  current_section?: number | null;
+};
+
+type SchoolClassOption = {
+  id: number;
+  name: string;
+};
+
+type SectionOption = {
+  id: number;
+  name: string;
+  school_class?: number | null;
 };
 
 type LeaveType = {
@@ -143,6 +190,12 @@ type LeaveDefine = {
   role_name: string;
   staff: number | null;
   staff_name: string;
+  student: number | null;
+  student_name: string;
+  school_class: number | null;
+  class_name: string;
+  section: number | null;
+  section_name: string;
   leave_type: number;
   leave_type_name: string;
   days: number;
@@ -198,19 +251,62 @@ type PayrollSummary = {
 
 export function HrDepartmentsPanel() {
   const [rows, setRows] = useState<Department[]>([]);
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; description?: string }>({});
+  const formBoxRef = useRef<HTMLDivElement | null>(null);
+
+  const filteredRows = useMemo(() => {
+    if (statusFilter === "all") return rows;
+    if (statusFilter === "active") return rows.filter((item) => item.is_active);
+    return rows.filter((item) => !item.is_active);
+  }, [rows, statusFilter]);
+
+  const validateName = (raw: string): string | null => {
+    const value = raw.trim();
+    if (!value) return "Department name is required.";
+    if (value.length < 3 || value.length > 50) return "Department name length must be between 3 and 50 characters.";
+    if (!/^[A-Za-z ]+$/.test(value)) return "Department name can contain only letters and spaces.";
+    return null;
+  };
+
+  const validateDescription = (raw: string): string | null => {
+    if (raw.trim().length > 255) return "Description must not exceed 255 characters.";
+    return null;
+  };
+
+  const applyServerError = (message: string) => {
+    const lower = message.toLowerCase();
+    if (lower.includes("department name") || lower.includes("name")) {
+      setFieldErrors((prev) => ({ ...prev, name: message }));
+      return;
+    }
+    if (lower.includes("description")) {
+      setFieldErrors((prev) => ({ ...prev, description: message }));
+      return;
+    }
+    setError(message);
+  };
 
   const load = async () => {
     try {
+      setLoading(true);
       setError("");
       const data = await apiGet<ApiList<Department>>("/api/v1/hr/departments/");
       setRows(listData(data));
-    } catch {
-      setError("Unable to load departments.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to load departments.";
+      setError(message || "Unable to load departments.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -220,25 +316,54 @@ export function HrDepartmentsPanel() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!name.trim()) {
-      setError("Department name is required.");
+    setError("");
+    setToast("");
+    setFieldErrors({});
+
+    const nameError = validateName(name);
+    const descError = validateDescription(description);
+    if (nameError || descError) {
+      setFieldErrors({ name: nameError || undefined, description: descError || undefined });
+      setError("Please fix the highlighted fields.");
       return;
     }
+
     try {
-      setError("");
+      setSaving(true);
       const payload = { name: name.trim(), description: description.trim(), is_active: isActive };
       if (editingId) {
         await apiPatch(`/api/v1/hr/departments/${editingId}/`, payload);
+        setToast("Department updated successfully.");
       } else {
         await apiPost("/api/v1/hr/departments/", payload);
+        setToast("Department created successfully.");
       }
       setEditingId(null);
       setName("");
       setDescription("");
       setIsActive(true);
       await load();
-    } catch {
-      setError("Unable to save department.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to save department.";
+      applyServerError(message || "Unable to save department.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeDepartment = async (id: number) => {
+    try {
+      setError("");
+      setToast("");
+      setDeletingId(id);
+      await apiDelete(`/api/v1/hr/departments/${id}/`);
+      setToast("Department deleted successfully.");
+      await load();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to delete department.";
+      setError(message || "Unable to delete department.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -246,34 +371,135 @@ export function HrDepartmentsPanel() {
     <div className="legacy-panel">
       {breadcrumb("Departments")}
       <section className="admin-visitor-area up_st_admin_visitor"><div className="container-fluid p-0">
-        <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
+        <div ref={formBoxRef} className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
           <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Department" : "Add Department"}</h3>
           <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 8 }}>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Department name *" style={fieldStyle()} />
-            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" style={fieldStyle()} />
-            <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Active</label>
-            <button type="submit" style={buttonStyle()}>{editingId ? "Update" : "Save"}</button>
+            <div>
+              <input
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (fieldErrors.name) setFieldErrors((prev) => ({ ...prev, name: undefined }));
+                }}
+                placeholder="Department name *"
+                style={{ ...fieldStyle(), borderColor: fieldErrors.name ? "#dc2626" : "var(--line)" }}
+              />
+              {fieldErrors.name ? <p style={{ color: "#dc2626", marginTop: 4, marginBottom: 0, fontSize: 12 }}>{fieldErrors.name}</p> : null}
+            </div>
+            <div>
+              <input
+                value={description}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                  if (fieldErrors.description) setFieldErrors((prev) => ({ ...prev, description: undefined }));
+                }}
+                placeholder="Description"
+                style={{ ...fieldStyle(), borderColor: fieldErrors.description ? "#dc2626" : "var(--line)" }}
+              />
+              {fieldErrors.description ? <p style={{ color: "#dc2626", marginTop: 4, marginBottom: 0, fontSize: 12 }}>{fieldErrors.description}</p> : null}
+            </div>
+            <div>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Active</label>
+              <p style={{ marginTop: 4, marginBottom: 0, fontSize: 12, color: "var(--text-muted)" }}>
+                Active departments are available for new assignments; inactive departments stay in history only.
+              </p>
+            </div>
+            <button type="submit" style={buttonStyle()} disabled={saving}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</button>
           </form>
           {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
+          {toast ? <p style={{ color: "#16a34a", marginTop: 8 }}>{toast}</p> : null}
         </div>
 
         <div className="white-box" style={boxStyle()}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h4 style={{ margin: 0 }}>Department List</h4>
+            <div style={{ display: "grid", gap: 4 }}>
+              <label htmlFor="department-status-filter" style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>
+                Status Filter
+              </label>
+              <select
+                id="department-status-filter"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "inactive")}
+                style={{ ...fieldStyle(), height: 34, minWidth: 170 }}
+              >
+                <option value="all">All</option>
+                <option value="active">Active only</option>
+                <option value="inactive">Inactive only</option>
+              </select>
+            </div>
+          </div>
+          {loading ? <p style={{ marginTop: 0, marginBottom: 10, color: "var(--text-muted)" }}>Loading departments...</p> : null}
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Name</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Description</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Status</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th></tr></thead>
             <tbody>
-              {rows.map((row) => (
+              {filteredRows.map((row) => (
                 <tr key={row.id}>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.description || "-"}</td>
-                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.is_active ? "Active" : "Inactive"}</td>
+                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        padding: "2px 10px",
+                        borderRadius: 999,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: row.is_active ? "#166534" : "#991b1b",
+                        background: row.is_active ? "#dcfce7" : "#fee2e2",
+                        border: `1px solid ${row.is_active ? "#86efac" : "#fca5a5"}`,
+                      }}
+                    >
+                      {row.is_active ? "Active" : "Inactive"}
+                    </span>
+                  </td>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <button type="button" style={buttonStyle("#0ea5e9")} onClick={() => { setEditingId(row.id); setName(row.name); setDescription(row.description || ""); setIsActive(row.is_active); }}>Edit</button>
-                      <button type="button" style={buttonStyle("#dc2626")} onClick={() => void apiDelete(`/api/v1/hr/departments/${row.id}/`).then(load).catch(() => setError("Unable to delete department."))}>Delete</button>
+                      <button
+                        type="button"
+                        title="Edit department"
+                        aria-label="Edit department"
+                        style={{ ...buttonStyle("#0ea5e9"), width: 34, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                        onClick={() => {
+                          setEditingId(row.id);
+                          setName(row.name);
+                          setDescription(row.description || "");
+                          setIsActive(row.is_active);
+                          formBoxRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M12 20h9" />
+                          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete department"
+                        aria-label="Delete department"
+                        style={{ ...buttonStyle("#dc2626"), width: 34, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                        disabled={deletingId === row.id}
+                        onClick={() => void removeDepartment(row.id)}
+                      >
+                        {deletingId === row.id ? "..." : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4h8v2" />
+                            <path d="M19 6l-1 14H6L5 6" />
+                          </svg>
+                        )}
+                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
+              {!loading && filteredRows.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: 12, color: "var(--text-muted)", borderBottom: "1px solid var(--line)" }}>
+                    No departments found for selected filter.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -285,14 +511,70 @@ export function HrDepartmentsPanel() {
 export function HrDesignationsPanel() {
   const [rows, setRows] = useState<Designation[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
   const [departmentId, setDepartmentId] = useState("");
   const [name, setName] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ department?: string; name?: string }>({});
+  const formBoxRef = useRef<HTMLDivElement | null>(null);
+
+  const sortedRows = useMemo(() => {
+    const departmentName = (id: number) => (departments.find((item) => item.id === id)?.name || "").toLowerCase();
+    return [...rows].sort((a, b) => {
+      const deptCompare = departmentName(a.department).localeCompare(departmentName(b.department));
+      if (deptCompare !== 0) return deptCompare;
+      return a.name.localeCompare(b.name);
+    });
+  }, [rows, departments]);
+
+  const filteredRows = useMemo(() => {
+    return sortedRows.filter((row) => {
+      if (statusFilter === "active" && !row.is_active) return false;
+      if (statusFilter === "inactive" && row.is_active) return false;
+      if (departmentFilter !== "all" && String(row.department) !== departmentFilter) return false;
+      return true;
+    });
+  }, [sortedRows, statusFilter, departmentFilter]);
+
+  const validateDepartment = (value: string): string | null => {
+    if (!value) return "Department is required.";
+    const id = Number(value);
+    if (!Number.isInteger(id) || id <= 0) return "Please select a valid department.";
+    if (!departments.some((item) => item.id === id)) return "Please select a valid department from the list.";
+    return null;
+  };
+
+  const validateName = (raw: string): string | null => {
+    const value = raw.trim();
+    if (!value) return "Designation name is required.";
+    if (value.length < 3 || value.length > 50) return "Designation name length must be between 3 and 50 characters.";
+    if (!/^[A-Za-z ]+$/.test(value)) return "Designation name can contain only letters and spaces.";
+    return null;
+  };
+
+  const applyServerError = (message: string) => {
+    const lower = message.toLowerCase();
+    if (lower.includes("department")) {
+      setFieldErrors((prev) => ({ ...prev, department: message }));
+      return;
+    }
+    if (lower.includes("designation") || lower.includes("name")) {
+      setFieldErrors((prev) => ({ ...prev, name: message }));
+      return;
+    }
+    setError(message);
+  };
 
   const load = async () => {
     try {
+      setLoading(true);
       setError("");
       const [designationData, departmentData] = await Promise.all([
         apiGet<ApiList<Designation>>("/api/v1/hr/designations/"),
@@ -300,8 +582,11 @@ export function HrDesignationsPanel() {
       ]);
       setRows(listData(designationData));
       setDepartments(listData(departmentData));
-    } catch {
-      setError("Unable to load designations.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to load designations.";
+      setError(message || "Unable to load designations.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -311,25 +596,55 @@ export function HrDesignationsPanel() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!departmentId || !name.trim()) {
-      setError("Department and designation name are required.");
+
+    setError("");
+    setToast("");
+    setFieldErrors({});
+
+    const departmentError = validateDepartment(departmentId);
+    const nameError = validateName(name);
+    if (departmentError || nameError) {
+      setFieldErrors({ department: departmentError || undefined, name: nameError || undefined });
+      setError("Please fix the highlighted fields.");
       return;
     }
+
     try {
-      setError("");
+      setSaving(true);
       const payload = { department: Number(departmentId), name: name.trim(), is_active: isActive };
       if (editingId) {
         await apiPatch(`/api/v1/hr/designations/${editingId}/`, payload);
+        setToast("Designation updated successfully.");
       } else {
         await apiPost("/api/v1/hr/designations/", payload);
+        setToast("Designation created successfully.");
       }
       setEditingId(null);
       setDepartmentId("");
       setName("");
       setIsActive(true);
       await load();
-    } catch {
-      setError("Unable to save designation.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to save designation.";
+      applyServerError(message || "Unable to save designation.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeDesignation = async (id: number) => {
+    try {
+      setError("");
+      setToast("");
+      setDeletingId(id);
+      await apiDelete(`/api/v1/hr/designations/${id}/`);
+      setToast("Designation deleted successfully.");
+      await load();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to delete designation.";
+      setError(message || "Unable to delete designation.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -337,40 +652,162 @@ export function HrDesignationsPanel() {
     <div className="legacy-panel">
       {breadcrumb("Designations")}
       <section className="admin-visitor-area up_st_admin_visitor"><div className="container-fluid p-0">
-        <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
+        <div ref={formBoxRef} className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
           <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Designation" : "Add Designation"}</h3>
           <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 8 }}>
-            <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} style={fieldStyle()}>
-              <option value="">Department</option>
-              {departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Designation name *" style={fieldStyle()} />
-            <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Active</label>
-            <button type="submit" style={buttonStyle()}>{editingId ? "Update" : "Save"}</button>
+            <div>
+              <label style={{ display: "block", marginBottom: 4, fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>
+                Department *
+              </label>
+              <select
+                value={departmentId}
+                onChange={(e) => {
+                  setDepartmentId(e.target.value);
+                  if (fieldErrors.department) setFieldErrors((prev) => ({ ...prev, department: undefined }));
+                }}
+                style={{ ...fieldStyle(), borderColor: fieldErrors.department ? "#dc2626" : "var(--line)" }}
+              >
+                <option value="">Department</option>
+                {departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              {fieldErrors.department ? <p style={{ color: "#dc2626", marginTop: 4, marginBottom: 0, fontSize: 12 }}>{fieldErrors.department}</p> : null}
+            </div>
+            <div>
+              <label style={{ display: "block", marginBottom: 4, fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>
+                Designation *
+              </label>
+              <input
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (fieldErrors.name) setFieldErrors((prev) => ({ ...prev, name: undefined }));
+                }}
+                placeholder="Designation name *"
+                style={{ ...fieldStyle(), borderColor: fieldErrors.name ? "#dc2626" : "var(--line)" }}
+              />
+              {fieldErrors.name ? <p style={{ color: "#dc2626", marginTop: 4, marginBottom: 0, fontSize: 12 }}>{fieldErrors.name}</p> : null}
+            </div>
+            <div>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Active</label>
+              <p style={{ marginTop: 4, marginBottom: 0, fontSize: 12, color: "var(--text-muted)" }}>
+                Active designations are available in staff assignment; inactive designations remain for records.
+              </p>
+            </div>
+            <button type="submit" style={buttonStyle()} disabled={saving}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</button>
           </form>
           {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
+          {toast ? <p style={{ color: "#16a34a", marginTop: 8 }}>{toast}</p> : null}
         </div>
 
         <div className="white-box" style={boxStyle()}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10 }}>
+            <h4 style={{ margin: 0 }}>Designation List</h4>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "grid", gap: 4 }}>
+                <label htmlFor="designation-department-filter" style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>
+                  Department Filter
+                </label>
+                <select
+                  id="designation-department-filter"
+                  value={departmentFilter}
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                  style={{ ...fieldStyle(), height: 34, minWidth: 190 }}
+                >
+                  <option value="all">All Departments</option>
+                  {departments.map((item) => <option key={item.id} value={String(item.id)}>{item.name}</option>)}
+                </select>
+              </div>
+              <div style={{ display: "grid", gap: 4 }}>
+                <label htmlFor="designation-status-filter" style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>
+                  Status Filter
+                </label>
+                <select
+                  id="designation-status-filter"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "inactive")}
+                  style={{ ...fieldStyle(), height: 34, minWidth: 170 }}
+                >
+                  <option value="all">All</option>
+                  <option value="active">Active only</option>
+                  <option value="inactive">Inactive only</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          {loading ? <p style={{ marginTop: 0, marginBottom: 10, color: "var(--text-muted)" }}>Loading designations...</p> : null}
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Name</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Department</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Status</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th></tr></thead>
+            <thead><tr><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Department</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Designation</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Status</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th></tr></thead>
             <tbody>
-              {rows.map((row) => {
+              {filteredRows.map((row) => {
                 const department = departments.find((item) => item.id === row.department);
                 return (
                   <tr key={row.id}>
-                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{department?.name || row.department}</td>
-                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.is_active ? "Active" : "Inactive"}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
+                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "2px 10px",
+                          borderRadius: 999,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: row.is_active ? "#166534" : "#991b1b",
+                          background: row.is_active ? "#dcfce7" : "#fee2e2",
+                          border: `1px solid ${row.is_active ? "#86efac" : "#fca5a5"}`,
+                        }}
+                      >
+                        {row.is_active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
                       <div style={{ display: "flex", gap: 6 }}>
-                        <button type="button" style={buttonStyle("#0ea5e9")} onClick={() => { setEditingId(row.id); setDepartmentId(String(row.department)); setName(row.name); setIsActive(row.is_active); }}>Edit</button>
-                        <button type="button" style={buttonStyle("#dc2626")} onClick={() => void apiDelete(`/api/v1/hr/designations/${row.id}/`).then(load).catch(() => setError("Unable to delete designation."))}>Delete</button>
+                        <button
+                          type="button"
+                          title="Edit designation"
+                          aria-label="Edit designation"
+                          style={{ ...buttonStyle("#0ea5e9"), width: 34, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                          onClick={() => {
+                            setEditingId(row.id);
+                            setDepartmentId(String(row.department));
+                            setName(row.name);
+                            setIsActive(row.is_active);
+                            formBoxRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete designation"
+                          aria-label="Delete designation"
+                          style={{ ...buttonStyle("#dc2626"), width: 34, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                          disabled={deletingId === row.id}
+                          onClick={() => void removeDesignation(row.id)}
+                        >
+                          {deletingId === row.id ? "..." : (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M3 6h18" />
+                              <path d="M8 6V4h8v2" />
+                              <path d="M19 6l-1 14H6L5 6" />
+                            </svg>
+                          )}
+                        </button>
                       </div>
                     </td>
                   </tr>
                 );
               })}
+              {!loading && filteredRows.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: 12, color: "var(--text-muted)", borderBottom: "1px solid var(--line)" }}>
+                    No designations found for selected filters.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -382,10 +819,37 @@ export function HrDesignationsPanel() {
 export function HrStaffPanel() {
   const router = useRouter();
   const [roles, setRoles] = useState<Role[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [rolesError, setRolesError] = useState("");
+  const [dropdownErrors, setDropdownErrors] = useState<{ roles?: string; departments?: string; designations?: string }>({});
   const [departments, setDepartments] = useState<Department[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [toast, setToast] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{
+    staff_no?: string;
+    role?: string;
+    first_name?: string;
+    email?: string;
+    join_date?: string;
+    date_of_birth?: string;
+    phone?: string;
+    emergency_mobile?: string;
+    staff_photo?: string;
+    epf_no?: string;
+    basic_salary?: string;
+    contract_type?: string;
+    bank_account_name?: string;
+    bank_account_no?: string;
+    bank_name?: string;
+    bank_branch?: string;
+    facebook_url?: string;
+    twitter_url?: string;
+    linkedin_url?: string;
+    instagram_url?: string;
+  }>({});
   const [editingStaffId, setEditingStaffId] = useState<number | null>(null);
   const [editParam] = useState<string>(() => {
     if (typeof window === "undefined") return "";
@@ -418,6 +882,8 @@ export function HrStaffPanel() {
 
   const [epfNo, setEpfNo] = useState("");
   const [basicSalary, setBasicSalary] = useState("0.00");
+  const [allowance, setAllowance] = useState("0.00");
+  const [deduction, setDeduction] = useState("0.00");
   const [contractType, setContractType] = useState<"" | "permanent" | "contract">("");
   const [location, setLocation] = useState("");
 
@@ -425,6 +891,8 @@ export function HrStaffPanel() {
   const [bankAccountNo, setBankAccountNo] = useState("");
   const [bankName, setBankName] = useState("");
   const [bankBranch, setBankBranch] = useState("");
+  const [bankMobileNo, setBankMobileNo] = useState("");
+  const [ifscCode, setIfscCode] = useState("");
 
   const [facebookUrl, setFacebookUrl] = useState("");
   const [twitterUrl, setTwitterUrl] = useState("");
@@ -433,17 +901,250 @@ export function HrStaffPanel() {
 
   const [resume, setResume] = useState("");
   const [joiningLetter, setJoiningLetter] = useState("");
+  const [tenthCertificate, setTenthCertificate] = useState("");
+  const [eleventhCertificate, setEleventhCertificate] = useState("");
+  const [aadharCard, setAadharCard] = useState("");
+  const [drivingLicenseDoc, setDrivingLicenseDoc] = useState("");
   const [otherDocument, setOtherDocument] = useState("");
 
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [joiningLetterFile, setJoiningLetterFile] = useState<File | null>(null);
+  const [tenthCertFile, setTenthCertFile] = useState<File | null>(null);
+  const [eleventhCertFile, setEleventhCertFile] = useState<File | null>(null);
+  const [aadharFile, setAadharFile] = useState<File | null>(null);
+  const [drivingLicenseFile, setDrivingLicenseFile] = useState<File | null>(null);
+  const [otherDocFile, setOtherDocFile] = useState<File | null>(null);
+
   const staffPhotoRef = useRef<HTMLInputElement | null>(null);
+  const importStaffRef = useRef<HTMLInputElement | null>(null);
   const resumeRef = useRef<HTMLInputElement | null>(null);
   const joiningLetterRef = useRef<HTMLInputElement | null>(null);
+  const tenthCertRef = useRef<HTMLInputElement | null>(null);
+  const eleventhCertRef = useRef<HTMLInputElement | null>(null);
+  const aadharRef = useRef<HTMLInputElement | null>(null);
+  const drivingLicenseRef = useRef<HTMLInputElement | null>(null);
   const otherDocRef = useRef<HTMLInputElement | null>(null);
+  const [staffPhotoPreview, setStaffPhotoPreview] = useState("");
 
   const filteredDesignations = useMemo(() => {
     if (!departmentId) return designations;
     return designations.filter((item) => item.department === Number(departmentId));
   }, [departmentId, designations]);
+
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const clearFieldError = (field: keyof typeof fieldErrors) => {
+    if (!fieldErrors[field]) return;
+    setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
+
+  const validateMobile = (value: string) => !value.trim() || /^\+?[0-9]{7,15}$/.test(value.trim());
+  const validateOptionalUrl = (value: string) => !value.trim() || /^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(value.trim());
+
+  const scrollToField = (field: keyof typeof fieldErrors) => {
+    const tabByField: Partial<Record<keyof typeof fieldErrors, typeof activeTab>> = {
+      epf_no: "payroll",
+      basic_salary: "payroll",
+      contract_type: "payroll",
+      bank_account_name: "bank",
+      bank_account_no: "bank",
+      bank_name: "bank",
+      bank_branch: "bank",
+      facebook_url: "social",
+      twitter_url: "social",
+      linkedin_url: "social",
+      instagram_url: "social",
+    };
+    const targetTab = tabByField[field] || "basic";
+    setActiveTab(targetTab);
+    setTimeout(() => {
+      const element = document.getElementById(`staff-field-${String(field)}`);
+      if (!element) return;
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      if ("focus" in element) {
+        (element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).focus();
+      }
+    }, 50);
+  };
+
+  const addYearsSafe = (dateString: string, years: number) => {
+    const date = new Date(`${dateString}T00:00:00`);
+    const month = date.getMonth();
+    date.setFullYear(date.getFullYear() + years);
+    // Handle leap-day edge cases by moving to last valid day of previous month.
+    if (date.getMonth() !== month) {
+      date.setDate(0);
+    }
+    return date.toISOString().slice(0, 10);
+  };
+
+  const salaryNetPreview = useMemo(() => {
+    const basic = Number(basicSalary || "0");
+    const allow = Number(allowance || "0");
+    const deduct = Number(deduction || "0");
+    if (!Number.isFinite(basic) || !Number.isFinite(allow) || !Number.isFinite(deduct)) return "0.00";
+    return (basic + allow - deduct).toFixed(2);
+  }, [basicSalary, allowance, deduction]);
+
+  const getSubmitFieldErrors = () => {
+    const nextErrors: typeof fieldErrors = {};
+    const minAgeYears = 18;
+    const maxAgeYears = 80;
+
+    if (!staffNo.trim()) nextErrors.staff_no = "Staff no is required.";
+    if (!roleId) nextErrors.role = "Role is required.";
+    if (!firstName.trim()) {
+      nextErrors.first_name = "First name is required.";
+    } else if (!/^[A-Za-z ]{2,50}$/.test(firstName.trim())) {
+      nextErrors.first_name = "First name can contain only letters and spaces.";
+    }
+    if (lastName.trim() && !/^[A-Za-z ]{2,50}$/.test(lastName.trim())) {
+      nextErrors.first_name = "Last name can contain only letters and spaces.";
+    }
+    if (!email.trim()) {
+      nextErrors.email = "Email is required.";
+    } else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+      nextErrors.email = "Enter a valid email address.";
+    }
+    if (!joinDate) {
+      nextErrors.join_date = "Joining date is required.";
+    } else if (joinDate > todayStr) {
+      nextErrors.join_date = "Joining date cannot be in the future.";
+    }
+    if (dateOfBirth) {
+      if (dateOfBirth > todayStr) {
+        nextErrors.date_of_birth = "Date of birth cannot be in the future.";
+      }
+
+      const eighteenthBirthday = addYearsSafe(dateOfBirth, minAgeYears);
+      if (eighteenthBirthday > todayStr) {
+        nextErrors.date_of_birth = `Employee must be at least ${minAgeYears} years old.`;
+      }
+
+      const oldestAllowedDob = addYearsSafe(todayStr, -maxAgeYears);
+      if (dateOfBirth < oldestAllowedDob) {
+        nextErrors.date_of_birth = `Employee age should not exceed ${maxAgeYears} years.`;
+      }
+
+      if (joinDate && joinDate < dateOfBirth) {
+        nextErrors.join_date = "Joining date cannot be earlier than date of birth.";
+      }
+
+      if (joinDate && joinDate < eighteenthBirthday) {
+        nextErrors.join_date = `Joining date must be after employee turns ${minAgeYears}.`;
+      }
+    }
+    if (!validateMobile(phone)) nextErrors.phone = "Enter a valid mobile number.";
+    if (!validateMobile(emergencyMobile)) nextErrors.emergency_mobile = "Enter a valid mobile number.";
+
+    if (!bankAccountName.trim()) nextErrors.bank_account_name = "Account holder name is required";
+    if (!bankAccountNo.trim()) {
+      nextErrors.bank_account_no = "Enter valid account number";
+    } else if (!/^\d{6,30}$/.test(bankAccountNo.trim())) {
+      nextErrors.bank_account_no = "Enter valid account number";
+    }
+    if (!bankName.trim()) nextErrors.bank_name = "Bank name is required";
+    if (!bankBranch.trim()) nextErrors.bank_branch = "Branch name is required";
+    if (!ifscCode.trim()) {
+      nextErrors.bank_branch = "IFSC code is required.";
+    } else if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscCode.trim().toUpperCase())) {
+      nextErrors.bank_branch = "Enter a valid IFSC code (e.g., HDFC0001234).";
+    }
+
+    if (!basicSalary.trim()) {
+      nextErrors.basic_salary = "Enter valid salary amount";
+    } else {
+      const parsedSalary = Number(basicSalary);
+      if (!Number.isFinite(parsedSalary) || parsedSalary <= 0) {
+        nextErrors.basic_salary = "Enter valid salary amount";
+      }
+    }
+    if (!contractType) nextErrors.contract_type = "Select contract type";
+
+    if (epfNo.trim() && !/^[A-Za-z0-9\-/]{4,30}$/.test(epfNo.trim())) {
+      nextErrors.epf_no = "Enter a valid EPF number.";
+    }
+
+    if (!validateOptionalUrl(facebookUrl)) nextErrors.facebook_url = "Enter a valid URL";
+    if (!validateOptionalUrl(twitterUrl)) nextErrors.twitter_url = "Enter a valid URL";
+    if (!validateOptionalUrl(linkedinUrl)) nextErrors.linkedin_url = "Enter a valid URL";
+    if (!validateOptionalUrl(instagramUrl)) nextErrors.instagram_url = "Enter a valid URL";
+
+    return nextErrors;
+  };
+
+  const applyApiErrorToField = (message: string): keyof typeof fieldErrors | null => {
+    const lowered = message.toLowerCase();
+    if (lowered.includes("staff number") || lowered.includes("staff no")) {
+      setFieldErrors((prev) => ({ ...prev, staff_no: message }));
+      return "staff_no";
+    }
+    if (lowered.includes("role")) {
+      setFieldErrors((prev) => ({ ...prev, role: message }));
+      return "role";
+    }
+    if (lowered.includes("email")) {
+      setFieldErrors((prev) => ({ ...prev, email: message }));
+      return "email";
+    }
+    if (lowered.includes("joining date") || lowered.includes("join date")) {
+      setFieldErrors((prev) => ({ ...prev, join_date: message }));
+      return "join_date";
+    }
+    if (lowered.includes("date of birth")) {
+      setFieldErrors((prev) => ({ ...prev, date_of_birth: message }));
+      return "date_of_birth";
+    }
+    if (lowered.includes("mobile") || lowered.includes("phone")) {
+      setFieldErrors((prev) => ({ ...prev, phone: message }));
+      return "phone";
+    }
+    if (lowered.includes("account holder")) {
+      setFieldErrors((prev) => ({ ...prev, bank_account_name: message }));
+      return "bank_account_name";
+    }
+    if (lowered.includes("account number") || lowered.includes("bank account")) {
+      setFieldErrors((prev) => ({ ...prev, bank_account_no: message }));
+      return "bank_account_no";
+    }
+    if (lowered.includes("bank name")) {
+      setFieldErrors((prev) => ({ ...prev, bank_name: message }));
+      return "bank_name";
+    }
+    if (lowered.includes("branch")) {
+      setFieldErrors((prev) => ({ ...prev, bank_branch: message }));
+      return "bank_branch";
+    }
+    if (lowered.includes("salary")) {
+      setFieldErrors((prev) => ({ ...prev, basic_salary: message }));
+      return "basic_salary";
+    }
+    if (lowered.includes("contract type")) {
+      setFieldErrors((prev) => ({ ...prev, contract_type: message }));
+      return "contract_type";
+    }
+    if (lowered.includes("epf")) {
+      setFieldErrors((prev) => ({ ...prev, epf_no: message }));
+      return "epf_no";
+    }
+    if (lowered.includes("facebook")) {
+      setFieldErrors((prev) => ({ ...prev, facebook_url: message }));
+      return "facebook_url";
+    }
+    if (lowered.includes("twitter")) {
+      setFieldErrors((prev) => ({ ...prev, twitter_url: message }));
+      return "twitter_url";
+    }
+    if (lowered.includes("linkedin")) {
+      setFieldErrors((prev) => ({ ...prev, linkedin_url: message }));
+      return "linkedin_url";
+    }
+    if (lowered.includes("instagram")) {
+      setFieldErrors((prev) => ({ ...prev, instagram_url: message }));
+      return "instagram_url";
+    }
+    return null;
+  };
 
   const resetForm = () => {
     setActiveTab("basic");
@@ -464,6 +1165,7 @@ export function HrStaffPanel() {
     setEmergencyMobile("");
     setDrivingLicense("");
     setStaffPhoto("");
+    setStaffPhotoPreview("");
     setShowPublic(false);
     setCurrentAddress("");
     setPermanentAddress("");
@@ -471,35 +1173,110 @@ export function HrStaffPanel() {
     setExperience("");
     setEpfNo("");
     setBasicSalary("0.00");
+    setAllowance("0.00");
+    setDeduction("0.00");
     setContractType("");
     setLocation("");
     setBankAccountName("");
     setBankAccountNo("");
     setBankName("");
     setBankBranch("");
+    setBankMobileNo("");
+    setIfscCode("");
+    try {
+      localStorage.removeItem("hr_staff_form_draft");
+    } catch {
+      // ignore storage errors
+    }
     setFacebookUrl("");
     setTwitterUrl("");
     setLinkedinUrl("");
     setInstagramUrl("");
     setResume("");
+    setResumeFile(null);
     setJoiningLetter("");
+    setJoiningLetterFile(null);
+    setTenthCertificate("");
+    setTenthCertFile(null);
+    setEleventhCertificate("");
+    setEleventhCertFile(null);
+    setAadharCard("");
+    setAadharFile(null);
+    setDrivingLicenseDoc("");
+    setDrivingLicenseFile(null);
     setOtherDocument("");
+    setOtherDocFile(null);
+  };
+
+  const handleImportStaffCsv = async (file: File) => {
+    const text = await file.text();
+    const lines = text.split(/\r?\n/).filter((line) => line.trim());
+    if (lines.length < 2) {
+      setError("CSV file is empty.");
+      return;
+    }
+
+    const headers = lines[0].split(",").map((item) => item.trim().toLowerCase());
+    const values = lines[1].split(",").map((item) => item.trim());
+    const map = new Map<string, string>();
+    headers.forEach((header, idx) => map.set(header, values[idx] || ""));
+
+    setFirstName(map.get("first_name") || firstName);
+    setLastName(map.get("last_name") || lastName);
+    setEmail(map.get("email") || email);
+    setPhone(map.get("phone") || phone);
+    setDepartmentId(map.get("department_id") || departmentId);
+    setDesignationId(map.get("designation_id") || designationId);
+    setRoleId(map.get("role_id") || roleId);
+    setJoinDate(map.get("join_date") || joinDate);
+    setToast("Imported first CSV row into the form. Review and save.");
   };
 
   const load = async () => {
     try {
       setError("");
-      const [roleData, departmentData, designationData, nextStaffNo] = await Promise.all([
-        apiGet<ApiList<Role>>("/api/v1/access-control/roles/"),
+      setDropdownErrors({});
+      setRolesLoading(true);
+      setRolesError("");
+
+      const [roleDataResult, departmentDataResult, designationDataResult, nextStaffNoResult] = await Promise.allSettled([
+        apiGet<unknown>("/api/v1/access-control/roles/"),
         apiGet<ApiList<Department>>("/api/v1/hr/departments/?is_active=true"),
         apiGet<ApiList<Designation>>("/api/v1/hr/designations/?is_active=true"),
         apiGet<{ staff_no?: string }>("/api/v1/hr/staff/next-staff-no/"),
       ]);
-      setRoles(listData(roleData));
-      setDepartments(listData(departmentData));
-      setDesignations(listData(designationData));
-      if (!editParam) {
-        setStaffNo((nextStaffNo.staff_no || "").trim());
+
+      if (roleDataResult.status === "fulfilled") {
+        const payload = roleDataResult.value as { results?: Role[]; data?: Role[] } | Role[];
+        const mappedRoles = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload.data)
+            ? payload.data
+            : payload.results || [];
+        // Ensure options always use backend id -> value and name -> label.
+        setRoles(mappedRoles.map((role) => ({ id: role.id, name: role.name })));
+        setRolesError("");
+      } else {
+        setRoles([]);
+        setRolesError("Failed to load roles");
+        setDropdownErrors((prev) => ({ ...prev, roles: "Failed to load roles" }));
+      }
+
+      if (departmentDataResult.status === "fulfilled") {
+        setDepartments(listData(departmentDataResult.value));
+      } else {
+        setDepartments([]);
+        setDropdownErrors((prev) => ({ ...prev, departments: "Failed to load departments" }));
+      }
+      if (designationDataResult.status === "fulfilled") {
+        setDesignations(listData(designationDataResult.value));
+      } else {
+        setDesignations([]);
+        setDropdownErrors((prev) => ({ ...prev, designations: "Failed to load designations" }));
+      }
+      if (!editParam && nextStaffNoResult.status === "fulfilled") {
+        const nextValue = (nextStaffNoResult.value.staff_no || "").trim();
+        setStaffNo((prev) => prev || nextValue);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to load staff.";
@@ -507,6 +1284,8 @@ export function HrStaffPanel() {
       if (message && message !== "Unable to load staff.") {
         setError(message);
       }
+    } finally {
+      setRolesLoading(false);
     }
   };
 
@@ -515,9 +1294,102 @@ export function HrStaffPanel() {
   }, []);
 
   useEffect(() => {
+    if (editParam) return;
+    try {
+      const raw = localStorage.getItem("hr_staff_form_draft");
+      if (!raw) return;
+      const draft = JSON.parse(raw) as Partial<Record<string, string | boolean>>;
+      setStaffNo(String(draft.staffNo || ""));
+      setRoleId(String(draft.roleId || ""));
+      setDepartmentId(String(draft.departmentId || ""));
+      setDesignationId(String(draft.designationId || ""));
+      setFirstName(String(draft.firstName || ""));
+      setLastName(String(draft.lastName || ""));
+      setEmail(String(draft.email || ""));
+      setPhone(String(draft.phone || ""));
+      setJoinDate(String(draft.joinDate || joinDate));
+      setDateOfBirth(String(draft.dateOfBirth || ""));
+      setBasicSalary(String(draft.basicSalary || "0.00"));
+      setAllowance(String(draft.allowance || "0.00"));
+      setDeduction(String(draft.deduction || "0.00"));
+      setBankAccountName(String(draft.bankAccountName || ""));
+      setBankAccountNo(String(draft.bankAccountNo || ""));
+      setBankName(String(draft.bankName || ""));
+      setBankBranch(String(draft.bankBranch || ""));
+      setIfscCode(String(draft.ifscCode || ""));
+      setBankMobileNo(String(draft.bankMobileNo || ""));
+      setShowPublic(Boolean(draft.showPublic));
+    } catch {
+      // ignore malformed draft
+    }
+  }, [editParam]);
+
+  useEffect(() => {
+    if (editParam || editingStaffId) return;
+    try {
+      localStorage.setItem(
+        "hr_staff_form_draft",
+        JSON.stringify({
+          staffNo,
+          roleId,
+          departmentId,
+          designationId,
+          firstName,
+          lastName,
+          email,
+          phone,
+          joinDate,
+          dateOfBirth,
+          basicSalary,
+          allowance,
+          deduction,
+          bankAccountName,
+          bankAccountNo,
+          bankName,
+          bankBranch,
+          ifscCode,
+          bankMobileNo,
+          showPublic,
+        })
+      );
+    } catch {
+      // ignore storage errors
+    }
+  }, [
+    editParam,
+    editingStaffId,
+    staffNo,
+    roleId,
+    departmentId,
+    designationId,
+    firstName,
+    lastName,
+    email,
+    phone,
+    joinDate,
+    dateOfBirth,
+    basicSalary,
+    allowance,
+    deduction,
+    bankAccountName,
+    bankAccountNo,
+    bankName,
+    bankBranch,
+    ifscCode,
+    bankMobileNo,
+    showPublic,
+  ]);
+
+  useEffect(() => {
     if (!editParam) {
       setEditingStaffId(null);
       return;
+    }
+
+    try {
+      localStorage.removeItem("hr_staff_form_draft");
+    } catch {
+      // ignore storage access issues
     }
 
     const parsedId = Number(editParam);
@@ -550,6 +1422,7 @@ export function HrStaffPanel() {
         setEmergencyMobile(row.emergency_mobile || "");
         setDrivingLicense(row.driving_license || "");
         setStaffPhoto(row.staff_photo || "");
+        setStaffPhotoPreview(/^https?:\/\//i.test(row.staff_photo || "") ? (row.staff_photo || "") : "");
         setShowPublic(Boolean(row.show_public));
         setCurrentAddress(row.current_address || "");
         setPermanentAddress(row.permanent_address || "");
@@ -557,18 +1430,27 @@ export function HrStaffPanel() {
         setExperience(row.experience || "");
         setEpfNo(row.epf_no || "");
         setBasicSalary(String(row.basic_salary || "0.00"));
+        const custom = (row as unknown as { custom_field?: { allowance?: string | number; deduction?: string | number; ifsc_code?: string } }).custom_field || {};
+        setAllowance(String(custom.allowance || "0.00"));
+        setDeduction(String(custom.deduction || "0.00"));
         setContractType((row.contract_type || "") as "" | "permanent" | "contract");
         setLocation(row.location || "");
         setBankAccountName(row.bank_account_name || "");
         setBankAccountNo(row.bank_account_no || "");
         setBankName(row.bank_name || "");
         setBankBranch(row.bank_branch || "");
+        setBankMobileNo(row.bank_mobile_no || "");
+        setIfscCode(String((row as unknown as { custom_field?: { ifsc_code?: string } }).custom_field?.ifsc_code || ""));
         setFacebookUrl(row.facebook_url || "");
         setTwitterUrl(row.twitter_url || "");
         setLinkedinUrl(row.linkedin_url || "");
         setInstagramUrl(row.instagram_url || "");
         setResume(row.resume || "");
         setJoiningLetter(row.joining_letter || "");
+        setTenthCertificate(row.tenth_certificate || "");
+        setEleventhCertificate(row.eleventh_certificate || "");
+        setAadharCard(row.aadhar_card || "");
+        setDrivingLicenseDoc(row.driving_license_doc || "");
         setOtherDocument(row.other_document || "");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to load staff details.");
@@ -580,14 +1462,21 @@ export function HrStaffPanel() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!staffNo.trim() || !firstName.trim() || !email.trim() || !joinDate) {
-      setError("Staff no, first name, email and date of joining are required.");
+    const submitErrors = getSubmitFieldErrors();
+    setFieldErrors(submitErrors);
+    if (Object.keys(submitErrors).length > 0) {
+      setError("");
+      setToast("");
+      const firstField = Object.keys(submitErrors)[0] as keyof typeof fieldErrors;
+      scrollToField(firstField);
       return;
     }
 
     try {
+      setSaving(true);
       setError("");
       setSuccess("");
+      setToast("");
       const payload = {
         staff_no: staffNo.trim(),
         role: roleId ? Number(roleId) : null,
@@ -619,18 +1508,33 @@ export function HrStaffPanel() {
         bank_account_no: bankAccountNo.trim(),
         bank_name: bankName.trim(),
         bank_branch: bankBranch.trim(),
+        bank_mobile_no: bankMobileNo.trim(),
+        custom_field: {
+          ifsc_code: ifscCode.trim().toUpperCase(),
+          allowance: allowance.trim() || "0.00",
+          deduction: deduction.trim() || "0.00",
+        },
         facebook_url: facebookUrl.trim(),
         twitter_url: twitterUrl.trim(),
         linkedin_url: linkedinUrl.trim(),
         instagram_url: instagramUrl.trim(),
         resume: resume.trim(),
         joining_letter: joiningLetter.trim(),
+        tenth_certificate: tenthCertificate.trim(),
+        eleventh_certificate: eleventhCertificate.trim(),
+        aadhar_card: aadharCard.trim(),
+        driving_license_doc: drivingLicenseDoc.trim(),
         other_document: otherDocument.trim(),
         status: "active",
       };
 
       if (editingStaffId) {
         await apiPatch(`/api/v1/hr/staff/${editingStaffId}/`, payload);
+        try {
+          localStorage.removeItem("hr_staff_form_draft");
+        } catch {
+          // ignore storage errors
+        }
         setSuccess("Staff has been updated successfully.");
         router.push("/hr/staff-directory?updated=1");
         return;
@@ -638,12 +1542,25 @@ export function HrStaffPanel() {
 
       await apiPost("/api/v1/hr/staff/", payload);
 
+      try {
+        localStorage.removeItem("hr_staff_form_draft");
+      } catch {
+        // ignore storage errors
+      }
       resetForm();
       setSuccess("Staff has been added successfully.");
       await load();
       router.push("/hr/staff-directory?created=1");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save staff.");
+      const message = err instanceof Error ? err.message : "Unable to save staff.";
+      const mappedField = applyApiErrorToField(message);
+      if (mappedField) {
+        scrollToField(mappedField);
+      }
+      setError(message);
+      setToast(message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -664,9 +1581,26 @@ export function HrStaffPanel() {
         <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
             <h3 style={{ margin: 0 }}>{editingStaffId ? "Edit Staff Information" : "Staff Information"}</h3>
-            <div style={{ display: "flex", gap: 8, flexDirection: "column", alignItems: "flex-end" }}>
-              <button type="button" style={buttonStyle("#7c3aed")}>Import Staff</button>
-              <button type="submit" form="staff-form" style={buttonStyle()}>{editingStaffId ? "Update Staff" : "Save Staff"}</button>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                ref={importStaffRef}
+                type="file"
+                accept=".csv,text/csv"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  void handleImportStaffCsv(file).catch(() => {
+                    setError("Unable to import CSV file.");
+                  });
+                  e.target.value = "";
+                }}
+              />
+              <button type="button" style={buttonStyle("#7c3aed")} onClick={() => importStaffRef.current?.click()}>Import Staff</button>
+              <button type="submit" form="staff-form" style={buttonStyle()} disabled={saving || rolesLoading}>
+                {saving ? "Saving..." : editingStaffId ? "Update Staff" : "Save Staff"}
+              </button>
+              <button type="button" style={buttonStyle("#6b7280")} onClick={resetForm} disabled={saving}>Reset Form</button>
             </div>
           </div>
 
@@ -696,104 +1630,295 @@ export function HrStaffPanel() {
 
           <form id="staff-form" onSubmit={submit} style={{ display: "grid", gap: 12 }}>
             {activeTab === "basic" && (
-              <div style={sectionGrid}>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Staff No *</span><input value={staffNo} onChange={(e) => setStaffNo(e.target.value)} style={{ ...fieldStyle(), background: "#f8fafc" }} readOnly title="Auto generated" /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Role *</span><select value={roleId} onChange={(e) => setRoleId(e.target.value)} style={fieldStyle()}><option value="">Role *</option>{roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Department</span><select value={departmentId} onChange={(e) => { setDepartmentId(e.target.value); setDesignationId(""); }} style={fieldStyle()}><option value="">Department</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Designation</span><select value={designationId} onChange={(e) => setDesignationId(e.target.value)} style={fieldStyle()}><option value="">Designation</option>{filteredDesignations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
+              <div style={{ display: "grid", gap: 16 }}>
+                {/* Basic Information: system id + personal + contact + family + photo */}
+                <section style={{ ...boxStyle(), padding: 12 }}>
+                  <h4 style={{ margin: "0 0 10px 0", fontSize: 14, textTransform: "uppercase", color: "var(--text-muted)" }}>Basic Information</h4>
+                  <div style={sectionGrid}>
+                    {/* 1) System Identifier */}
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Staff No *</span><input value={staffNo} onChange={(e) => { setStaffNo(e.target.value); clearFieldError("staff_no"); }} style={{ ...fieldStyle(), background: "#f8fafc", borderColor: fieldErrors.staff_no ? "#dc2626" : "var(--line)" }} readOnly title="Auto generated" />{fieldErrors.staff_no ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.staff_no}</span> : null}</label>
+                    <div />
+                    <div />
+                    <div />
 
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>First Name *</span><input value={firstName} onChange={(e) => setFirstName(e.target.value)} style={fieldStyle()} /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Last Name</span><input value={lastName} onChange={(e) => setLastName(e.target.value)} style={fieldStyle()} /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Father Name</span><input value={fathersName} onChange={(e) => setFathersName(e.target.value)} style={fieldStyle()} /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Mother Name</span><input value={mothersName} onChange={(e) => setMothersName(e.target.value)} style={fieldStyle()} /></label>
+                    {/* 2) Personal Details */}
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>First Name *</span><input value={firstName} onChange={(e) => { setFirstName(e.target.value); clearFieldError("first_name"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.first_name ? "#dc2626" : "var(--line)" }} />{fieldErrors.first_name ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.first_name}</span> : null}</label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Last Name</span><input value={lastName} onChange={(e) => setLastName(e.target.value)} style={fieldStyle()} /></label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Gender</span><select value={gender} onChange={(e) => setGender(e.target.value as "" | "male" | "female" | "other")} style={fieldStyle()}><option value="">Gender</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></select></label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Date Of Birth</span><input type="date" value={dateOfBirth} onChange={(e) => { setDateOfBirth(e.target.value); clearFieldError("date_of_birth"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.date_of_birth ? "#dc2626" : "var(--line)" }} />{fieldErrors.date_of_birth ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.date_of_birth}</span> : null}</label>
 
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Email *</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={fieldStyle()} /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Gender</span><select value={gender} onChange={(e) => setGender(e.target.value as "" | "male" | "female" | "other")} style={fieldStyle()}><option value="">Gender</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></select></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Date Of Birth</span><input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} style={fieldStyle()} /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Date Of Joining *</span><input type="date" value={joinDate} onChange={(e) => setJoinDate(e.target.value)} style={fieldStyle()} /></label>
+                    {/* 3) Contact Details */}
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Email *</span><input type="email" value={email} onChange={(e) => { setEmail(e.target.value); clearFieldError("email"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.email ? "#dc2626" : "var(--line)" }} />{fieldErrors.email ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.email}</span> : null}</label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Mobile</span><input value={phone} onChange={(e) => { setPhone(e.target.value); clearFieldError("phone"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.phone ? "#dc2626" : "var(--line)" }} />{fieldErrors.phone ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.phone}</span> : null}</label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Emergency Mobile</span><input value={emergencyMobile} onChange={(e) => { setEmergencyMobile(e.target.value); clearFieldError("emergency_mobile"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.emergency_mobile ? "#dc2626" : "var(--line)" }} />{fieldErrors.emergency_mobile ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.emergency_mobile}</span> : null}</label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Marital Status</span><select value={maritalStatus} onChange={(e) => setMaritalStatus(e.target.value as "" | "single" | "married")} style={fieldStyle()}><option value="">Marital Status</option><option value="single">Single</option><option value="married">Married</option></select></label>
 
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Mobile</span><input value={phone} onChange={(e) => setPhone(e.target.value)} style={fieldStyle()} /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Marital Status</span><select value={maritalStatus} onChange={(e) => setMaritalStatus(e.target.value as "" | "single" | "married")} style={fieldStyle()}><option value="">Marital Status</option><option value="single">Single</option><option value="married">Married</option></select></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Emergency Mobile</span><input value={emergencyMobile} onChange={(e) => setEmergencyMobile(e.target.value)} style={fieldStyle()} /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Driving License</span><input value={drivingLicense} onChange={(e) => setDrivingLicense(e.target.value)} style={fieldStyle()} /></label>
+                    {/* 5) Family Details */}
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Father Name</span><input value={fathersName} onChange={(e) => setFathersName(e.target.value)} style={fieldStyle()} /></label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Mother Name</span><input value={mothersName} onChange={(e) => setMothersName(e.target.value)} style={fieldStyle()} /></label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Driving License</span><input value={drivingLicense} onChange={(e) => setDrivingLicense(e.target.value)} style={fieldStyle()} /></label>
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Show As Expert Staff</span>
+                      <div style={{ display: "flex", gap: 16, alignItems: "center", height: 36 }}>
+                        <label style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="radio" checked={showPublic} onChange={() => setShowPublic(true)} /> Yes</label>
+                        <label style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="radio" checked={!showPublic} onChange={() => setShowPublic(false)} /> No</label>
+                      </div>
+                    </div>
 
-                <div style={{ display: "grid", gap: 6 }}>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Staff Photo</span>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 86px", gap: 6 }}>
-                    <input readOnly value={staffPhoto || "Staff Photo"} style={fieldStyle()} />
-                    <button type="button" style={buttonStyle("#7c3aed")} onClick={() => staffPhotoRef.current?.click()}>Browse</button>
-                    <input ref={staffPhotoRef} type="file" style={{ display: "none" }} onChange={(e) => setStaffPhoto(e.target.files?.[0]?.name || "")} />
+                    {/* 7) File Upload */}
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Staff Photo</span>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 86px", gap: 6 }}>
+                        <input readOnly value={staffPhoto || "Staff Photo"} style={{ ...fieldStyle(), borderColor: fieldErrors.staff_photo ? "#dc2626" : "var(--line)" }} />
+                        <button type="button" style={buttonStyle("#7c3aed")} onClick={() => staffPhotoRef.current?.click()}>Browse</button>
+                        <input
+                          ref={staffPhotoRef}
+                          type="file"
+                          accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                          style={{ display: "none" }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) {
+                              setStaffPhoto("");
+                              setStaffPhotoPreview("");
+                              clearFieldError("staff_photo");
+                              return;
+                            }
+                            const isAllowedType = ["image/jpeg", "image/png"].includes(file.type);
+                            if (!isAllowedType) {
+                              const message = "Only JPG and PNG files are allowed.";
+                              setFieldErrors((prev) => ({ ...prev, staff_photo: message }));
+                              setError(message);
+                              setToast(message);
+                              e.target.value = "";
+                              return;
+                            }
+                            if (file.size > 2 * 1024 * 1024) {
+                              const message = "File size must be 2MB or less.";
+                              setFieldErrors((prev) => ({ ...prev, staff_photo: message }));
+                              setError(message);
+                              setToast(message);
+                              e.target.value = "";
+                              return;
+                            }
+                            setStaffPhoto(file.name);
+                            setStaffPhotoPreview(URL.createObjectURL(file));
+                            clearFieldError("staff_photo");
+                          }}
+                        />
+                      </div>
+                      <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Accepted formats: JPG, JPEG, PNG (max 2MB).</span>
+                      {staffPhotoPreview ? <img src={staffPhotoPreview} alt="Staff photo preview" style={{ width: 88, height: 88, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)" }} /> : null}
+                      {fieldErrors.staff_photo ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.staff_photo}</span> : null}
+                    </div>
                   </div>
-                </div>
-                <div style={{ display: "grid", gap: 6 }}>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Show As Expert Staff</span>
-                  <div style={{ display: "flex", gap: 16, alignItems: "center", height: 36 }}>
-                    <label style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="radio" checked={showPublic} onChange={() => setShowPublic(true)} /> Yes</label>
-                    <label style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="radio" checked={!showPublic} onChange={() => setShowPublic(false)} /> No</label>
-                  </div>
-                </div>
-                <div />
-                <div />
+                </section>
 
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Current Address</span><textarea value={currentAddress} onChange={(e) => setCurrentAddress(e.target.value)} style={{ width: "100%", minHeight: 84, border: "1px solid var(--line)", borderRadius: 8, padding: 10 }} /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Permanent Address</span><textarea value={permanentAddress} onChange={(e) => setPermanentAddress(e.target.value)} style={{ width: "100%", minHeight: 84, border: "1px solid var(--line)", borderRadius: 8, padding: 10 }} /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Qualifications</span><textarea value={qualification} onChange={(e) => setQualification(e.target.value)} style={{ width: "100%", minHeight: 84, border: "1px solid var(--line)", borderRadius: 8, padding: 10 }} /></label>
-                <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Experience</span><textarea value={experience} onChange={(e) => setExperience(e.target.value)} style={{ width: "100%", minHeight: 84, border: "1px solid var(--line)", borderRadius: 8, padding: 10 }} /></label>
+                {/* Job Details: grouped organizational fields in one block */}
+                <section style={{ ...boxStyle(), padding: 12 }}>
+                  <h4 style={{ margin: "0 0 10px 0", fontSize: 14, textTransform: "uppercase", color: "var(--text-muted)" }}>Job Details</h4>
+                  <div style={sectionGrid}>
+                    <label style={{ display: "grid", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Role *</span>
+                      <select value={roleId} onChange={(e) => { setRoleId(e.target.value); clearFieldError("role"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.role ? "#dc2626" : "var(--line)" }} disabled={rolesLoading}>
+                        <option value="">{rolesLoading ? "Loading roles..." : "Role *"}</option>
+                        {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                      {rolesError ? <span style={{ color: "#dc2626", fontSize: 12 }}>{rolesError}</span> : null}
+                      {fieldErrors.role ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.role}</span> : null}
+                    </label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Department</span><select value={departmentId} onChange={(e) => { setDepartmentId(e.target.value); setDesignationId(""); }} style={fieldStyle()}><option value="">Department</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select>{dropdownErrors.departments ? <span style={{ color: "#dc2626", fontSize: 12 }}>{dropdownErrors.departments}</span> : null}</label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Designation</span><select value={designationId} onChange={(e) => setDesignationId(e.target.value)} style={fieldStyle()}><option value="">Designation</option>{filteredDesignations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select>{dropdownErrors.designations ? <span style={{ color: "#dc2626", fontSize: 12 }}>{dropdownErrors.designations}</span> : null}</label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Date Of Joining *</span><input type="date" value={joinDate} onChange={(e) => { setJoinDate(e.target.value); clearFieldError("join_date"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.join_date ? "#dc2626" : "var(--line)" }} />{fieldErrors.join_date ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.join_date}</span> : null}</label>
+                  </div>
+                </section>
+
+                {/* Additional Information: long-text details grouped at end */}
+                <section style={{ ...boxStyle(), padding: 12 }}>
+                  <h4 style={{ margin: "0 0 10px 0", fontSize: 14, textTransform: "uppercase", color: "var(--text-muted)" }}>Additional Information</h4>
+                  <div style={sectionGrid}>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Current Address</span><textarea value={currentAddress} onChange={(e) => setCurrentAddress(e.target.value)} style={{ width: "100%", minHeight: 84, border: "1px solid var(--line)", borderRadius: 8, padding: 10 }} /></label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Permanent Address</span><textarea value={permanentAddress} onChange={(e) => setPermanentAddress(e.target.value)} style={{ width: "100%", minHeight: 84, border: "1px solid var(--line)", borderRadius: 8, padding: 10 }} /></label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Qualifications</span><textarea value={qualification} onChange={(e) => setQualification(e.target.value)} style={{ width: "100%", minHeight: 84, border: "1px solid var(--line)", borderRadius: 8, padding: 10 }} /></label>
+                    <label style={{ display: "grid", gap: 6 }}><span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Experience</span><textarea value={experience} onChange={(e) => setExperience(e.target.value)} style={{ width: "100%", minHeight: 84, border: "1px solid var(--line)", borderRadius: 8, padding: 10 }} /></label>
+                  </div>
+                </section>
               </div>
             )}
 
             {activeTab === "payroll" && (
               <div style={sectionGrid}>
-                <input value={epfNo} onChange={(e) => setEpfNo(e.target.value)} placeholder="EPF No" style={fieldStyle()} />
-                <input type="number" min="0" step="0.01" value={basicSalary} onChange={(e) => setBasicSalary(e.target.value)} placeholder="Basic Salary" style={fieldStyle()} />
-                <select value={contractType} onChange={(e) => setContractType(e.target.value as "" | "permanent" | "contract")} style={fieldStyle()}><option value="">Contract Type</option><option value="permanent">Permanent</option><option value="contract">Contract</option></select>
-                <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Location" style={fieldStyle()} />
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>EPF Number</span>
+                  <input id="staff-field-epf_no" value={epfNo} onChange={(e) => { setEpfNo(e.target.value); clearFieldError("epf_no"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.epf_no ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.epf_no ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.epf_no}</span> : null}
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Basic Salary *</span>
+                  <input id="staff-field-basic_salary" type="number" min="0" step="0.01" value={basicSalary} onChange={(e) => { setBasicSalary(e.target.value); clearFieldError("basic_salary"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.basic_salary ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.basic_salary ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.basic_salary}</span> : null}
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Allowances</span>
+                  <input type="number" min="0" step="0.01" value={allowance} onChange={(e) => setAllowance(e.target.value)} style={fieldStyle()} />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Deductions</span>
+                  <input type="number" min="0" step="0.01" value={deduction} onChange={(e) => setDeduction(e.target.value)} style={fieldStyle()} />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Net Salary (Preview)</span>
+                  <input readOnly value={salaryNetPreview} style={{ ...fieldStyle(), background: "#f8fafc" }} />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Contract Type *</span>
+                  <select id="staff-field-contract_type" value={contractType} onChange={(e) => { setContractType(e.target.value as "" | "permanent" | "contract"); clearFieldError("contract_type"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.contract_type ? "#dc2626" : "var(--line)" }}><option value="">Contract Type</option><option value="permanent">Permanent</option><option value="contract">Contract</option></select>
+                  {fieldErrors.contract_type ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.contract_type}</span> : null}
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Location</span>
+                  <input value={location} onChange={(e) => setLocation(e.target.value)} style={fieldStyle()} />
+                </label>
               </div>
             )}
 
             {activeTab === "bank" && (
               <div style={sectionGrid}>
-                <input value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} placeholder="Bank Account Name" style={fieldStyle()} />
-                <input value={bankAccountNo} onChange={(e) => setBankAccountNo(e.target.value)} placeholder="Account No" style={fieldStyle()} />
-                <input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Bank Name" style={fieldStyle()} />
-                <input value={bankBranch} onChange={(e) => setBankBranch(e.target.value)} placeholder="Branch Name" style={fieldStyle()} />
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Account Holder Name *</span>
+                  <input id="staff-field-bank_account_name" value={bankAccountName} onChange={(e) => { setBankAccountName(e.target.value); clearFieldError("bank_account_name"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.bank_account_name ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.bank_account_name ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.bank_account_name}</span> : null}
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Account Number *</span>
+                  <input id="staff-field-bank_account_no" value={bankAccountNo} onChange={(e) => { setBankAccountNo(e.target.value); clearFieldError("bank_account_no"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.bank_account_no ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.bank_account_no ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.bank_account_no}</span> : null}
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Bank Name *</span>
+                  <input id="staff-field-bank_name" value={bankName} onChange={(e) => { setBankName(e.target.value); clearFieldError("bank_name"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.bank_name ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.bank_name ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.bank_name}</span> : null}
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Branch Name *</span>
+                  <input id="staff-field-bank_branch" value={bankBranch} onChange={(e) => { setBankBranch(e.target.value); clearFieldError("bank_branch"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.bank_branch ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.bank_branch ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.bank_branch}</span> : null}
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>IFSC Code *</span>
+                  <input value={ifscCode} onChange={(e) => setIfscCode(e.target.value.toUpperCase())} placeholder="e.g., SBIN0001234" style={fieldStyle()} maxLength={11} />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Bank Contact Mobile</span>
+                  <input value={bankMobileNo} onChange={(e) => { setBankMobileNo(e.target.value); clearFieldError("bank_mobile_no"); }} placeholder="e.g., +91 9876543210" style={{ ...fieldStyle(), borderColor: fieldErrors.bank_mobile_no ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.bank_mobile_no ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.bank_mobile_no}</span> : null}
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Optional: Bank customer service contact number</span>
+                </label>
               </div>
             )}
 
             {activeTab === "social" && (
               <div style={sectionGrid}>
-                <input value={facebookUrl} onChange={(e) => setFacebookUrl(e.target.value)} placeholder="Facebook URL" style={fieldStyle()} />
-                <input value={twitterUrl} onChange={(e) => setTwitterUrl(e.target.value)} placeholder="Twitter URL" style={fieldStyle()} />
-                <input value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="LinkedIn URL" style={fieldStyle()} />
-                <input value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} placeholder="Instagram URL" style={fieldStyle()} />
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Facebook URL</span>
+                  <input id="staff-field-facebook_url" value={facebookUrl} onChange={(e) => { setFacebookUrl(e.target.value); clearFieldError("facebook_url"); }} placeholder="Enter Facebook profile URL" style={{ ...fieldStyle(), borderColor: fieldErrors.facebook_url ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.facebook_url ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.facebook_url}</span> : null}
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Twitter URL</span>
+                  <input id="staff-field-twitter_url" value={twitterUrl} onChange={(e) => { setTwitterUrl(e.target.value); clearFieldError("twitter_url"); }} placeholder="Enter Twitter profile URL" style={{ ...fieldStyle(), borderColor: fieldErrors.twitter_url ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.twitter_url ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.twitter_url}</span> : null}
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>LinkedIn URL</span>
+                  <input id="staff-field-linkedin_url" value={linkedinUrl} onChange={(e) => { setLinkedinUrl(e.target.value); clearFieldError("linkedin_url"); }} placeholder="Enter LinkedIn profile URL" style={{ ...fieldStyle(), borderColor: fieldErrors.linkedin_url ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.linkedin_url ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.linkedin_url}</span> : null}
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Instagram URL</span>
+                  <input id="staff-field-instagram_url" value={instagramUrl} onChange={(e) => { setInstagramUrl(e.target.value); clearFieldError("instagram_url"); }} placeholder="Enter Instagram profile URL" style={{ ...fieldStyle(), borderColor: fieldErrors.instagram_url ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.instagram_url ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.instagram_url}</span> : null}
+                </label>
               </div>
             )}
 
             {activeTab === "document" && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
                 <div style={{ display: "grid", gap: 6 }}>
                   <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Resume</span>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 86px", gap: 6 }}>
                     <input readOnly value={resume || "Resume"} style={fieldStyle()} />
                     <button type="button" style={buttonStyle("#7c3aed")} onClick={() => resumeRef.current?.click()}>Browse</button>
-                    <input ref={resumeRef} type="file" style={{ display: "none" }} onChange={(e) => setResume(e.target.files?.[0]?.name || "")} />
+                    <input ref={resumeRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) { setResumeFile(file); setResume(file.name); } }} />
                   </div>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Accepted: PDF, DOC, DOCX, JPG, PNG</span>
+                  {resumeFile && <a href={URL.createObjectURL(resumeFile)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#7c3aed", textDecoration: "underline" }}>Preview / Download</a>}
                 </div>
+
                 <div style={{ display: "grid", gap: 6 }}>
                   <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Joining Letter</span>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 86px", gap: 6 }}>
                     <input readOnly value={joiningLetter || "Joining Letter"} style={fieldStyle()} />
                     <button type="button" style={buttonStyle("#7c3aed")} onClick={() => joiningLetterRef.current?.click()}>Browse</button>
-                    <input ref={joiningLetterRef} type="file" style={{ display: "none" }} onChange={(e) => setJoiningLetter(e.target.files?.[0]?.name || "")} />
+                    <input ref={joiningLetterRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) { setJoiningLetterFile(file); setJoiningLetter(file.name); } }} />
                   </div>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Accepted: PDF, DOC, DOCX, JPG, PNG</span>
+                  {joiningLetterFile && <a href={URL.createObjectURL(joiningLetterFile)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#7c3aed", textDecoration: "underline" }}>Preview / Download</a>}
                 </div>
+
+                <div style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>10th Certificate</span>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 86px", gap: 6 }}>
+                    <input readOnly value={tenthCertificate || "10th Certificate"} style={fieldStyle()} />
+                    <button type="button" style={buttonStyle("#7c3aed")} onClick={() => tenthCertRef.current?.click()}>Browse</button>
+                    <input ref={tenthCertRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) { setTenthCertFile(file); setTenthCertificate(file.name); } }} />
+                  </div>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Accepted: PDF, JPG, JPEG, PNG</span>
+                  {tenthCertFile && <a href={URL.createObjectURL(tenthCertFile)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#7c3aed", textDecoration: "underline" }}>Preview / Download</a>}
+                </div>
+
+                <div style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>11th/12th Certificate</span>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 86px", gap: 6 }}>
+                    <input readOnly value={eleventhCertificate || "11th/12th Certificate"} style={fieldStyle()} />
+                    <button type="button" style={buttonStyle("#7c3aed")} onClick={() => eleventhCertRef.current?.click()}>Browse</button>
+                    <input ref={eleventhCertRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) { setEleventhCertFile(file); setEleventhCertificate(file.name); } }} />
+                  </div>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Accepted: PDF, JPG, JPEG, PNG</span>
+                  {eleventhCertFile && <a href={URL.createObjectURL(eleventhCertFile)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#7c3aed", textDecoration: "underline" }}>Preview / Download</a>}
+                </div>
+
+                <div style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Aadhar Card</span>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 86px", gap: 6 }}>
+                    <input readOnly value={aadharCard || "Aadhar Card"} style={fieldStyle()} />
+                    <button type="button" style={buttonStyle("#7c3aed")} onClick={() => aadharRef.current?.click()}>Browse</button>
+                    <input ref={aadharRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) { setAadharFile(file); setAadharCard(file.name); } }} />
+                  </div>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Accepted: PDF, JPG, JPEG, PNG</span>
+                  {aadharFile && <a href={URL.createObjectURL(aadharFile)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#7c3aed", textDecoration: "underline" }}>Preview / Download</a>}
+                </div>
+
+                <div style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Driving License</span>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 86px", gap: 6 }}>
+                    <input readOnly value={drivingLicenseDoc || "Driving License"} style={fieldStyle()} />
+                    <button type="button" style={buttonStyle("#7c3aed")} onClick={() => drivingLicenseRef.current?.click()}>Browse</button>
+                    <input ref={drivingLicenseRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) { setDrivingLicenseFile(file); setDrivingLicenseDoc(file.name); } }} />
+                  </div>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Accepted: PDF, JPG, JPEG, PNG</span>
+                  {drivingLicenseFile && <a href={URL.createObjectURL(drivingLicenseFile)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#7c3aed", textDecoration: "underline" }}>Preview / Download</a>}
+                </div>
+
                 <div style={{ display: "grid", gap: 6 }}>
                   <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Other Documents</span>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 86px", gap: 6 }}>
                     <input readOnly value={otherDocument || "Other Document"} style={fieldStyle()} />
                     <button type="button" style={buttonStyle("#7c3aed")} onClick={() => otherDocRef.current?.click()}>Browse</button>
-                    <input ref={otherDocRef} type="file" style={{ display: "none" }} onChange={(e) => setOtherDocument(e.target.files?.[0]?.name || "")} />
+                    <input ref={otherDocRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (file) { setOtherDocFile(file); setOtherDocument(file.name); } }} />
                   </div>
+                  <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Accepted: PDF, DOC, DOCX, JPG, PNG</span>
+                  {otherDocFile && <a href={URL.createObjectURL(otherDocFile)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#7c3aed", textDecoration: "underline" }}>Preview / Download</a>}
                 </div>
               </div>
             )}
@@ -802,9 +1927,7 @@ export function HrStaffPanel() {
               <button type="submit">Save</button>
             </div>
           </form>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-            <button type="button" style={buttonStyle("#6b7280")} onClick={resetForm}>Reset Form</button>
-          </div>
+          {toast ? <p style={{ color: "#dc2626", marginTop: 8 }}>{toast}</p> : null}
           {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
           {success && <p style={{ color: "#16a34a", marginTop: 8 }}>{success}</p>}
         </div>
@@ -820,22 +1943,81 @@ export function HrStaffDirectoryPanel() {
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [togglingStatusId, setTogglingStatusId] = useState<number | null>(null);
+
+  // Filters & Search
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterDepartment, setFilterDepartment] = useState("");
+  const [filterRole, setFilterRole] = useState("");
+  const [filterDesignation, setFilterDesignation] = useState("");
+  const [filterStatus, setFilterStatus] = useState<"all" | "active" | "inactive">("all");
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 25;
 
   const load = async () => {
     try {
+      setLoading(true);
       setError("");
-      const [roleData, departmentData, designationData, staffData] = await Promise.all([
+
+      const [roleResult, departmentResult, designationResult, staffResult] = await Promise.allSettled([
         apiGet<ApiList<Role>>("/api/v1/access-control/roles/"),
-        apiGet<ApiList<Department>>("/api/v1/hr/departments/"),
-        apiGet<ApiList<Designation>>("/api/v1/hr/designations/"),
+        apiGet<ApiList<Department>>("/api/v1/hr/departments/?is_active=true"),
+        apiGet<ApiList<Designation>>("/api/v1/hr/designations/?is_active=true"),
         apiGet<ApiList<Staff>>("/api/v1/hr/staff/"),
       ]);
-      setRoles(listData(roleData));
-      setDepartments(listData(departmentData));
-      setDesignations(listData(designationData));
-      setRows(listData(staffData));
+
+      // Process roles
+      if (roleResult.status === "fulfilled") {
+        const payload = roleResult.value as { results?: Role[]; data?: Role[] } | Role[];
+        const roleList = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload.data)
+            ? payload.data
+            : payload.results || [];
+        setRoles(roleList);
+      } else {
+        setRoles([]);
+      }
+
+      // Process departments
+      if (departmentResult.status === "fulfilled") {
+        setDepartments(listData(departmentResult.value));
+      } else {
+        setDepartments([]);
+      }
+
+      // Process designations
+      if (designationResult.status === "fulfilled") {
+        setDesignations(listData(designationResult.value));
+      } else {
+        setDesignations([]);
+      }
+
+      // Process staff
+      if (staffResult.status === "fulfilled") {
+        setRows(listData(staffResult.value));
+      } else {
+        setRows([]);
+      }
+
+      setCurrentPage(1);
+
+      const dropdownFailures = [roleResult, departmentResult, designationResult].filter((r) => r.status === "rejected");
+      const staffFailed = staffResult.status === "rejected";
+
+      if (dropdownFailures.length === 3) {
+        setError("Unable to load dropdown options right now. Please refresh the page or check the backend API.");
+      } else if (staffFailed) {
+        console.warn("Staff rows failed to load:", staffResult.status === "rejected" ? staffResult.reason : "Unknown error");
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load staff directory.");
+      const message = err instanceof Error ? err.message : "Unable to load staff directory";
+      setError(`⚠️ Error: ${message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -843,74 +2025,389 @@ export function HrStaffDirectoryPanel() {
     void load();
   }, []);
 
+  const filteredDesignationOptions = useMemo(() => {
+    const activeDesignations = designations.filter((designation) => designation.is_active);
+    if (!filterDepartment) {
+      return activeDesignations;
+    }
+    return activeDesignations.filter((designation) => designation.department === Number(filterDepartment));
+  }, [designations, filterDepartment]);
+
+  // Filtering & searching logic
+  const filteredRows = useMemo(() => {
+    let result = [...rows];
+
+    // Search filter (Staff No or Name)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter((row) => {
+        const staffNo = (row.staff_no || "").toLowerCase();
+        const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ").toLowerCase();
+        return staffNo.includes(query) || fullName.includes(query);
+      });
+    }
+
+    // Role filter
+    if (filterRole) {
+      result = result.filter((row) => row.role === Number(filterRole));
+    }
+
+    // Department filter
+    if (filterDepartment) {
+      result = result.filter((row) => row.department === Number(filterDepartment));
+    }
+
+    // Designation filter
+    if (filterDesignation) {
+      result = result.filter((row) => row.designation === Number(filterDesignation));
+    }
+
+    // Status filter
+    if (filterStatus === "active") {
+      result = result.filter((row) => row.status === "active");
+    } else if (filterStatus === "inactive") {
+      result = result.filter((row) => row.status !== "active");
+    }
+
+    // Sort by department name, then by name
+    result.sort((a, b) => {
+      const deptA = departments.find((d) => d.id === a.department)?.name || "";
+      const deptB = departments.find((d) => d.id === b.department)?.name || "";
+      if (deptA !== deptB) return deptA.localeCompare(deptB);
+
+      const nameA = [a.first_name, a.last_name].filter(Boolean).join(" ");
+      const nameB = [b.first_name, b.last_name].filter(Boolean).join(" ");
+      return nameA.localeCompare(nameB);
+    });
+
+    return result;
+  }, [rows, searchQuery, filterDepartment, filterRole, filterDesignation, filterStatus, departments]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredRows.length / itemsPerPage);
+  const startIdx = (currentPage - 1) * itemsPerPage;
+  const endIdx = startIdx + itemsPerPage;
+  const paginatedRows = filteredRows.slice(startIdx, endIdx);
+
+  const toggleStaffStatus = async (staffId: number, currentStatus: string) => {
+    const newStatus = currentStatus === "active" ? "inactive" : "active";
+    try {
+      setTogglingStatusId(staffId);
+      await apiPatch(`/api/v1/hr/staff/${staffId}/`, { status: newStatus });
+      setSuccess(`Staff status updated to ${newStatus}.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update staff status.");
+    } finally {
+      setTogglingStatusId(null);
+    }
+  };
+
+  const deleteStaff = async (staffId: number) => {
+    if (!window.confirm("Are you sure you want to delete this staff member?")) return;
+    try {
+      setLoading(true);
+      await apiDelete(`/api/v1/hr/staff/${staffId}/`);
+      setSuccess("Staff has been deleted successfully.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete staff.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="legacy-panel">
       {breadcrumb("Staff Directory")}
       <section className="admin-visitor-area up_st_admin_visitor"><div className="container-fluid p-0">
         <div className="white-box" style={boxStyle()}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h3 style={{ margin: 0 }}>Staff List</h3>
-            <button type="button" style={buttonStyle("#334155")} onClick={() => void load()}>Refresh</button>
+            <button type="button" style={buttonStyle("#334155")} onClick={() => void load()} disabled={loading}>
+              {loading ? "Loading..." : "Refresh"}
+            </button>
           </div>
-          {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
-          {success && <p style={{ color: "#16a34a", marginTop: 8 }}>{success}</p>}
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Staff No</th>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Name</th>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Role</th>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Department</th>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Designation</th>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Phone</th>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Status</th>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 10, color: "var(--text-muted)" }}>No staff found.</td>
+
+          {/* Messages */}
+          {error && <p style={{ color: "var(--warning)", marginTop: 8, marginBottom: 8 }}>{error}</p>}
+          {success && <p style={{ color: "#16a34a", marginTop: 8, marginBottom: 8 }}>{success}</p>}
+
+          {/* Search & Filter Controls */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: 16, padding: "12px", background: "#f8fafc", borderRadius: 8 }}>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600, display: "block", marginBottom: 4 }}>Search (ID or Name)</label>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Search staff..."
+                style={{ ...fieldStyle(), width: "100%" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600, display: "block", marginBottom: 4 }}>Role</label>
+              <select
+                value={filterRole}
+                onChange={(e) => {
+                  setFilterRole(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ ...fieldStyle(), width: "100%" }}
+              >
+                <option value="">All Roles</option>
+                {([...roles]
+                  .sort((a, b) => a.name.localeCompare(b.name)))
+                  .map((role) => (
+                    <option key={role.id} value={String(role.id)}>
+                      {role.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600, display: "block", marginBottom: 4 }}>Department</label>
+              <select
+                value={filterDepartment}
+                onChange={(e) => {
+                  setFilterDepartment(e.target.value);
+                  setFilterDesignation("");
+                  setCurrentPage(1);
+                }}
+                style={{ ...fieldStyle(), width: "100%" }}
+              >
+                <option value="">All Departments</option>
+                {departments
+                  .filter((d) => d.is_active)
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((dept) => (
+                    <option key={dept.id} value={String(dept.id)}>
+                      {dept.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600, display: "block", marginBottom: 4 }}>Designation</label>
+              <select
+                value={filterDesignation}
+                onChange={(e) => {
+                  setFilterDesignation(e.target.value);
+                  setCurrentPage(1);
+                }}
+                style={{ ...fieldStyle(), width: "100%" }}
+              >
+                <option value="">All Designations</option>
+                {filteredDesignationOptions.map((desig) => (
+                  <option key={desig.id} value={String(desig.id)}>
+                    {desig.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600, display: "block", marginBottom: 4 }}>Status</label>
+              <select
+                value={filterStatus}
+                onChange={(e) => {
+                  setFilterStatus(e.target.value as "all" | "active" | "inactive");
+                  setCurrentPage(1);
+                }}
+                style={{ ...fieldStyle(), width: "100%" }}
+              >
+                <option value="all">All Staff</option>
+                <option value="active">Active Only</option>
+                <option value="inactive">Inactive Only</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Results info */}
+          <div style={{ marginBottom: 12, fontSize: 12, color: "var(--text-muted)" }}>
+            Showing {paginatedRows.length === 0 ? "0" : startIdx + 1}–{Math.min(endIdx, filteredRows.length)} of {filteredRows.length} staff member{filteredRows.length !== 1 ? "s" : ""}
+          </div>
+
+          {/* Table */}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#f8fafc" }}>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)", fontSize: 12, fontWeight: 600, textTransform: "uppercase" }}>Staff No</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)", fontSize: 12, fontWeight: 600, textTransform: "uppercase" }}>Name</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)", fontSize: 12, fontWeight: 600, textTransform: "uppercase" }}>Role</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)", fontSize: 12, fontWeight: 600, textTransform: "uppercase" }}>Department</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)", fontSize: 12, fontWeight: 600, textTransform: "uppercase" }}>Designation</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)", fontSize: 12, fontWeight: 600, textTransform: "uppercase" }}>Phone</th>
+                  <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)", fontSize: 12, fontWeight: 600, textTransform: "uppercase" }}>Status</th>
+                  <th style={{ textAlign: "center", padding: 8, borderBottom: "1px solid var(--line)", fontSize: 12, fontWeight: 600, textTransform: "uppercase" }}>Actions</th>
                 </tr>
-              ) : rows.map((row) => {
-                const roleName = roles.find((role) => role.id === row.role)?.name || "-";
-                const departmentName = departments.find((department) => department.id === row.department)?.name || "-";
-                const designationName = designations.find((designation) => designation.id === row.designation)?.name || "-";
-                const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ").trim();
-                return (
-                  <tr key={row.id}>
-                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.staff_no || "-"}</td>
-                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{fullName || "-"}</td>
-                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{roleName}</td>
-                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{departmentName}</td>
-                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{designationName}</td>
-                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.phone || "-"}</td>
-                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)", textTransform: "capitalize" }}>{row.status || "-"}</td>
-                    <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button type="button" style={buttonStyle("#0ea5e9")} onClick={() => { if (typeof window !== "undefined") window.location.href = `/hr/staff?edit=${row.id}`; }}>Edit</button>
-                        <button
-                          type="button"
-                          style={buttonStyle("#dc2626")}
-                          onClick={() => {
-                            if (!window.confirm("Delete this staff member?")) return;
-                            void apiDelete(`/api/v1/hr/staff/${row.id}/`).then(() => {
-                              setSuccess("Staff has been deleted successfully.");
-                              return load();
-                            }).catch((err) => {
-                              setError(err instanceof Error ? err.message : "Unable to delete staff.");
-                            });
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
+              </thead>
+              <tbody>
+                {paginatedRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} style={{ padding: 12, color: "var(--text-muted)", textAlign: "center" }}>
+                      {filteredRows.length === 0 ? "No staff found matching your filters." : "No staff found."}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                ) : (
+                  paginatedRows.map((row) => {
+                    const roleName = roles.find((r) => r.id === row.role)?.name || "-";
+                    const departmentName = departments.find((d) => d.id === row.department)?.name || "-";
+                    const designationName = designations.find((d) => d.id === row.designation)?.name || "-";
+                    const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ").trim();
+                    const isActive = row.status === "active";
+                    const rowBackground = isActive ? "transparent" : "#fef2f2";
+
+                    return (
+                      <tr
+                        key={row.id}
+                        style={{
+                          background: rowBackground,
+                          borderBottom: "1px solid var(--line)",
+                          opacity: isActive ? 1 : 0.7,
+                        }}
+                      >
+                        <td style={{ padding: 8 }}>{row.staff_no || "-"}</td>
+                        <td style={{ padding: 8, fontWeight: isActive ? 500 : 400 }}>{fullName || "-"}</td>
+                        <td style={{ padding: 8 }}>{roleName}</td>
+                        <td style={{ padding: 8 }}>{departmentName}</td>
+                        <td style={{ padding: 8 }}>{designationName}</td>
+                        <td style={{ padding: 8 }}>{row.phone || "-"}</td>
+                        <td style={{ padding: 8 }}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "4px 12px",
+                              borderRadius: 999,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: isActive ? "#166534" : "#991b1b",
+                              background: isActive ? "#dcfce7" : "#fee2e2",
+                              border: `1px solid ${isActive ? "#86efac" : "#fca5a5"}`,
+                              cursor: "pointer",
+                              userSelect: "none",
+                            }}
+                            onClick={() => void toggleStaffStatus(row.id, row.status)}
+                            title="Click to toggle status"
+                          >
+                            {isActive ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                        <td style={{ padding: 8, textAlign: "center" }}>
+                          <div style={{ display: "flex", gap: 4, justifyContent: "center", alignItems: "center" }}>
+                            <button
+                              type="button"
+                              title="Edit staff member"
+                              aria-label="Edit staff member"
+                              style={{
+                                width: 34,
+                                height: 34,
+                                padding: 0,
+                                border: "1px solid #0ea5e9",
+                                background: "#0ea5e9",
+                                color: "#fff",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                              onClick={() => {
+                                if (typeof window !== "undefined") window.location.href = `/hr/staff?edit=${row.id}`;
+                              }}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              title="Delete staff member"
+                              aria-label="Delete staff member"
+                              style={{
+                                width: 34,
+                                height: 34,
+                                padding: 0,
+                                border: "1px solid #dc2626",
+                                background: "#dc2626",
+                                color: "#fff",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                              onClick={() => void deleteStaff(row.id)}
+                              disabled={loading}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M3 6h18" />
+                                <path d="M8 6V4h8v2" />
+                                <path d="M19 6l-1 14H6L5 6" />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 16 }}>
+              <button
+                type="button"
+                style={buttonStyle("#334155")}
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+              >
+                ← Previous
+              </button>
+
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    style={{
+                      width: 34,
+                      height: 34,
+                      border: currentPage === page ? "1px solid var(--primary)" : "1px solid var(--line)",
+                      background: currentPage === page ? "var(--primary)" : "var(--surface)",
+                      color: currentPage === page ? "#fff" : "var(--text)",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      fontWeight: currentPage === page ? 600 : 400,
+                    }}
+                    onClick={() => setCurrentPage(page)}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                style={buttonStyle("#334155")}
+                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </div>
       </div></section>
     </div>
@@ -925,6 +2422,69 @@ export function HrLeaveTypesPanel() {
   const [isActive, setIsActive] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [paidFilter, setPaidFilter] = useState<"all" | "paid" | "unpaid">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; max_days_per_year?: string; is_active?: string }>({});
+  const formRef = useRef<HTMLDivElement | null>(null);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      if (paidFilter === "paid" && !row.is_paid) return false;
+      if (paidFilter === "unpaid" && row.is_paid) return false;
+      if (statusFilter === "active" && !row.is_active) return false;
+      if (statusFilter === "inactive" && row.is_active) return false;
+      return true;
+    });
+  }, [rows, paidFilter, statusFilter]);
+
+  const clearFieldError = (field: keyof typeof fieldErrors) => {
+    if (!fieldErrors[field]) return;
+    setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
+
+  const validateForm = () => {
+    const nextErrors: typeof fieldErrors = {};
+    const normalizedName = name.trim();
+    const parsedDays = Number(maxDays);
+
+    if (!normalizedName) {
+      nextErrors.name = "Leave name is required.";
+    } else {
+      if (normalizedName.length < 3) {
+        nextErrors.name = "Leave name must be at least 3 characters.";
+      } else if (!/^[A-Za-z ]+$/.test(normalizedName)) {
+        nextErrors.name = "Leave name can contain only letters and spaces.";
+      }
+    }
+
+    if (!maxDays.trim()) {
+      nextErrors.max_days_per_year = "Max days is required.";
+    } else if (!Number.isFinite(parsedDays)) {
+      nextErrors.max_days_per_year = "Max days must be a number.";
+    } else if (parsedDays <= 0) {
+      nextErrors.max_days_per_year = "Max days must be greater than 0.";
+    } else if (parsedDays > 365) {
+      nextErrors.max_days_per_year = "Max days cannot exceed 365.";
+    }
+
+    if (isPaid && Number.isFinite(parsedDays) && parsedDays <= 0) {
+      nextErrors.max_days_per_year = "Paid leave must have max days greater than 0.";
+    }
+
+    return nextErrors;
+  };
+
+  const mapApiMessageToField = (message: string): keyof typeof fieldErrors | null => {
+    const lowered = message.toLowerCase();
+    if (lowered.includes("duplicate") || lowered.includes("already exists") || lowered.includes("already exist")) return "name";
+    if (lowered.includes("name") || lowered.includes("leave type")) return "name";
+    if (lowered.includes("max") || lowered.includes("days")) return "max_days_per_year";
+    if (lowered.includes("active") || lowered.includes("deactivate")) return "is_active";
+    return null;
+  };
 
   const load = async () => {
     try {
@@ -942,17 +2502,26 @@ export function HrLeaveTypesPanel() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!name.trim()) {
-      setError("Leave type name is required.");
+    const nextErrors = validateForm();
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      setError("");
+      setToast("");
       return;
     }
+
     try {
+      setSaving(true);
+      setFieldErrors({});
       setError("");
+      setToast("");
       const payload = { name: name.trim(), max_days_per_year: Number(maxDays || "0"), is_paid: isPaid, is_active: isActive };
       if (editingId) {
         await apiPatch(`/api/v1/hr/leave-types/${editingId}/`, payload);
+        setToast("Leave type updated successfully.");
       } else {
         await apiPost("/api/v1/hr/leave-types/", payload);
+        setToast("Leave type created successfully.");
       }
       setEditingId(null);
       setName("");
@@ -960,45 +2529,146 @@ export function HrLeaveTypesPanel() {
       setIsPaid(true);
       setIsActive(true);
       await load();
-    } catch {
-      setError("Unable to save leave type.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Validation failed";
+      const field = mapApiMessageToField(message);
+      if (field) {
+        setFieldErrors((prev) => ({ ...prev, [field]: message }));
+      }
+      setError(message);
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
     <div className="legacy-panel">
-      {breadcrumb("Leave Types")}
+      {breadcrumb("Types of Leaves")}
       <section className="admin-visitor-area up_st_admin_visitor"><div className="container-fluid p-0">
-        <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
-          <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Leave Type" : "Add Leave Type"}</h3>
-          <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 180px auto auto auto", gap: 8 }}>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Leave type name *" style={fieldStyle()} />
-            <input type="number" min="0" value={maxDays} onChange={(e) => setMaxDays(e.target.value)} placeholder="Max days" style={fieldStyle()} />
-            <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={isPaid} onChange={(e) => setIsPaid(e.target.checked)} /> Paid</label>
-            <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Active</label>
-            <button type="submit" style={buttonStyle()}>{editingId ? "Update" : "Save"}</button>
+        <div ref={formRef} className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
+          <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Leave Type" : "Add Different Types of Leaves"}</h3>
+          <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1.2fr 180px auto auto auto", gap: 8, alignItems: "start" }}>
+            <div style={{ display: "grid", gap: 4 }}>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Leave Type Name *</label>
+              <input value={name} onChange={(e) => { setName(e.target.value); clearFieldError("name"); }} placeholder="e.g. Casual Leave" style={{ ...fieldStyle(), borderColor: fieldErrors.name ? "#dc2626" : "var(--line)" }} />
+              {fieldErrors.name ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.name}</span> : null}
+            </div>
+            <div style={{ display: "grid", gap: 4 }}>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Max Days *</label>
+              <input type="number" min="1" step="1" value={maxDays} onChange={(e) => { setMaxDays(e.target.value); clearFieldError("max_days_per_year"); }} placeholder="1 or more" style={{ ...fieldStyle(), borderColor: fieldErrors.max_days_per_year ? "#dc2626" : "var(--line)" }} />
+              {fieldErrors.max_days_per_year ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.max_days_per_year}</span> : null}
+            </div>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, alignSelf: "end" }}>
+              <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Type</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6, height: 36 }}><input type="checkbox" checked={isPaid} onChange={(e) => setIsPaid(e.target.checked)} /> Paid</span>
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, alignSelf: "end" }}>
+              <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Status</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6, height: 36 }}><input type="checkbox" checked={isActive} onChange={(e) => { setIsActive(e.target.checked); clearFieldError("is_active"); }} /> Active</span>
+            </label>
+            <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
+              <button type="submit" style={buttonStyle()} disabled={saving}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</button>
+              <button type="button" style={buttonStyle("#6b7280")} onClick={() => {
+                setEditingId(null);
+                setName("");
+                setMaxDays("0");
+                setIsPaid(true);
+                setIsActive(true);
+                setFieldErrors({});
+                setError("");
+                setToast("");
+              }} disabled={saving}>
+                Reset
+              </button>
+            </div>
           </form>
+          {fieldErrors.is_active ? <p style={{ color: "#dc2626", marginTop: 8, marginBottom: 0 }}>{fieldErrors.is_active}</p> : null}
           {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
+          {toast ? <p style={{ color: "#16a34a", marginTop: 8 }}>{toast}</p> : null}
         </div>
 
         <div className="white-box" style={boxStyle()}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600, display: "block", marginBottom: 4 }}>Paid Filter</label>
+              <select value={paidFilter} onChange={(e) => setPaidFilter(e.target.value as "all" | "paid" | "unpaid")} style={fieldStyle()}>
+                <option value="all">All Types</option>
+                <option value="paid">Paid Only</option>
+                <option value="unpaid">Unpaid Only</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600, display: "block", marginBottom: 4 }}>Status Filter</label>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "inactive")} style={fieldStyle()}>
+                <option value="all">All Statuses</option>
+                <option value="active">Active Only</option>
+                <option value="inactive">Inactive Only</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", alignItems: "end", gap: 8 }}>
+              <button type="button" style={buttonStyle("#334155")} onClick={() => { setPaidFilter("all"); setStatusFilter("all"); }}>
+                Clear Filters
+              </button>
+            </div>
+          </div>
+
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Name</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Max Days</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Paid</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Status</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th></tr></thead>
             <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
+              {filteredRows.map((row) => (
+                <tr key={row.id} style={{ background: row.is_active ? "transparent" : "#fef2f2" }}>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.max_days_per_year}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.is_paid ? "Yes" : "No"}</td>
-                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.is_active ? "Active" : "Inactive"}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button type="button" style={buttonStyle("#0ea5e9")} onClick={() => { setEditingId(row.id); setName(row.name); setMaxDays(String(row.max_days_per_year)); setIsPaid(row.is_paid); setIsActive(row.is_active); }}>Edit</button>
-                      <button type="button" style={buttonStyle("#dc2626")} onClick={() => void apiDelete(`/api/v1/hr/leave-types/${row.id}/`).then(load).catch(() => setError("Unable to delete leave type."))}>Delete</button>
+                    <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600, color: row.is_active ? "#166534" : "#991b1b", background: row.is_active ? "#dcfce7" : "#fee2e2", border: `1px solid ${row.is_active ? "#86efac" : "#fca5a5"}` }}>
+                      {row.is_active ? "Active" : "Inactive"}
+                    </span>
+                  </td>
+                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" style={buttonStyle("#0ea5e9")} onClick={() => {
+                        setEditingId(row.id);
+                        setName(row.name);
+                        setMaxDays(String(row.max_days_per_year));
+                        setIsPaid(row.is_paid);
+                        setIsActive(row.is_active);
+                        setError("");
+                        setToast("");
+                        formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}>Edit</button>
+                      <button
+                        type="button"
+                        style={buttonStyle("#dc2626")}
+                        disabled={deletingId === row.id}
+                        onClick={() => {
+                          if (!window.confirm(`Delete leave type \"${row.name}\"?`)) return;
+                          setDeletingId(row.id);
+                          void apiDelete(`/api/v1/hr/leave-types/${row.id}/`)
+                            .then(async () => {
+                              setToast("Leave type deleted successfully.");
+                              setError("");
+                              await load();
+                            })
+                            .catch((err) => {
+                              setError(err instanceof Error ? err.message : "Validation failed");
+                            })
+                            .finally(() => setDeletingId(null));
+                        }}
+                      >
+                        {deletingId === row.id ? "Deleting..." : "Delete"}
+                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
+              {filteredRows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: 12, textAlign: "center", color: "var(--text-muted)" }}>
+                    No leave types found for the selected filters.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -1011,30 +2681,259 @@ export function HrLeaveDefinePanel() {
   const [rows, setRows] = useState<LeaveDefine[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [staffRows, setStaffRows] = useState<Staff[]>([]);
+  const [studentRows, setStudentRows] = useState<Student[]>([]);
+  const [classRows, setClassRows] = useState<SchoolClassOption[]>([]);
+  const [sectionRows, setSectionRows] = useState<SectionOption[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [studentLoading, setStudentLoading] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{
+    role?: string;
+    staff?: string;
+    school_class?: string;
+    section?: string;
+    student?: string;
+    leave_type?: string;
+    days?: string;
+  }>({});
 
   const [roleId, setRoleId] = useState("");
+  const [scopeType, setScopeType] = useState<"all" | "class" | "individual">("all");
   const [staffId, setStaffId] = useState("");
+  const [classId, setClassId] = useState("");
+  const [sectionId, setSectionId] = useState("");
+  const [studentId, setStudentId] = useState("");
   const [leaveTypeId, setLeaveTypeId] = useState("");
   const [days, setDays] = useState("0");
 
+  const selectedRole = roles.find((item) => String(item.id) === roleId);
+  const isStudentRole = !!selectedRole && selectedRole.name.trim().toLowerCase() === "student";
+  const filteredSections = useMemo(() => {
+    if (!classId) return [];
+    return sectionRows.filter((item) => String(item.school_class || "") === classId);
+  }, [sectionRows, classId]);
+  const filteredStudents = useMemo(() => {
+    return studentRows.filter((item) => {
+      if (classId && String(item.current_class || "") !== classId) return false;
+      if (sectionId && String(item.current_section || "") !== sectionId) return false;
+      return true;
+    });
+  }, [studentRows, classId, sectionId]);
+
+  const noLeaveDefinitions = !loading && !error && rows.length === 0;
+
+  const mapLoadError = (message: string) => {
+    const lowered = message.toLowerCase();
+    if (lowered.includes("permission") || lowered.includes("forbidden") || lowered.includes("403")) {
+      return "You do not have permission to view this data.";
+    }
+    if (lowered.includes("failed to fetch") || lowered.includes("network")) {
+      return "Network error. Please check your connection.";
+    }
+    return "Unable to load leave data. Please try again.";
+  };
+
+  const fieldIdMap: Record<keyof typeof fieldErrors, string> = {
+    role: "leave-define-role",
+    staff: "leave-define-staff",
+    school_class: "leave-define-class",
+    section: "leave-define-section",
+    student: "leave-define-student",
+    leave_type: "leave-define-leave-type",
+    days: "leave-define-days",
+  };
+
+  const scrollToFirstError = (errors: typeof fieldErrors) => {
+    const firstField = (Object.keys(errors) as Array<keyof typeof fieldErrors>).find((key) => !!errors[key]);
+    if (!firstField) return;
+    const elementId = fieldIdMap[firstField];
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    element.focus();
+  };
+
+  const clearFieldError = (field: keyof typeof fieldErrors) => {
+    if (!fieldErrors[field]) return;
+    setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
+
+  const validateForm = () => {
+    const nextErrors: typeof fieldErrors = {};
+    const parsedDays = Number(days);
+
+    if (!roleId && !staffId) {
+      nextErrors.role = "Select role or staff.";
+      nextErrors.staff = "Select role or staff.";
+    }
+    if (roleId && staffId && !isStudentRole) {
+      nextErrors.role = "Choose either role or staff, not both.";
+      nextErrors.staff = "Choose either role or staff, not both.";
+    }
+    if (isStudentRole) {
+      if (staffId) {
+        nextErrors.staff = "Staff selection is not allowed for Student role.";
+      }
+      if (scopeType === "class") {
+        if (!classId) {
+          nextErrors.school_class = "Class is required for class scope.";
+        }
+        if (!sectionId) {
+          nextErrors.section = "Section is required for class scope.";
+        }
+      }
+      if (scopeType === "individual") {
+        if (!classId) {
+          nextErrors.school_class = "Class is required for individual scope.";
+        }
+        if (!sectionId) {
+          nextErrors.section = "Section is required for individual scope.";
+        }
+        if (!studentId) {
+          nextErrors.student = "Student is required for individual scope.";
+        }
+      }
+    } else if (studentId) {
+      nextErrors.student = "Student can be selected only when role is Student.";
+    } else if (classId || sectionId) {
+      nextErrors.school_class = "Class/Section can be selected only when role is Student.";
+    }
+    if (!leaveTypeId) {
+      nextErrors.leave_type = "Leave type is required.";
+    }
+    if (!days.trim()) {
+      nextErrors.days = "Days is required.";
+    } else if (!Number.isInteger(parsedDays)) {
+      nextErrors.days = "Days must be an integer.";
+    } else if (parsedDays <= 0) {
+      nextErrors.days = "Days must be greater than 0";
+    }
+
+    return nextErrors;
+  };
+
+  const mapApiMessageToField = (message: string): keyof typeof fieldErrors | null => {
+    const lowered = message.toLowerCase();
+    if (lowered.includes("role")) return "role";
+    if (lowered.includes("staff")) return "staff";
+    if (lowered.includes("class")) return "school_class";
+    if (lowered.includes("section")) return "section";
+    if (lowered.includes("student")) return "student";
+    if (lowered.includes("leave type")) return "leave_type";
+    if (lowered.includes("days")) return "days";
+    return null;
+  };
+
+  const loadStaffByRole = async (selectedRoleId: string) => {
+    setStaffLoading(true);
+    try {
+      const endpoint = selectedRoleId
+        ? `/api/v1/hr/staff/?status=active&role=${selectedRoleId}`
+        : "/api/v1/hr/staff/?status=active";
+      const staffData = await apiGet<ApiList<Staff>>(endpoint);
+      const items = listData(staffData);
+      if (selectedRoleId) {
+        const selectedRoleNumber = Number(selectedRoleId);
+        setStaffRows(items.filter((item) => item.role === selectedRoleNumber));
+      } else {
+        setStaffRows(items);
+      }
+    } catch {
+      setStaffRows([]);
+    } finally {
+      setStaffLoading(false);
+    }
+  };
+
+  const loadStudents = async () => {
+    setStudentLoading(true);
+    try {
+      const studentData = await apiGet<ApiList<Student>>("/api/v1/students/students/");
+      const items = listData(studentData);
+      setStudentRows(items.filter((item) => item.is_active));
+    } catch {
+      setStudentRows([]);
+    } finally {
+      setStudentLoading(false);
+    }
+  };
+
   const load = async () => {
     try {
+      setLoading(true);
       setError("");
-      const [defineData, roleData, staffData, leaveTypeData] = await Promise.all([
+      const [defineDataResult, roleDataResult, leaveTypeDataResult] = await Promise.allSettled([
         apiGet<ApiList<LeaveDefine>>("/api/v1/hr/leave-defines/"),
         apiGet<ApiList<Role>>("/api/v1/access-control/roles/"),
-        apiGet<ApiList<Staff>>("/api/v1/hr/staff/"),
         apiGet<ApiList<LeaveType>>("/api/v1/hr/leave-types/?is_active=true"),
       ]);
-      setRows(listData(defineData));
-      setRoles(listData(roleData));
-      setStaffRows(listData(staffData));
-      setLeaveTypes(listData(leaveTypeData));
-    } catch {
-      setError("Unable to load leave define data.");
+
+      const [classDataResult, sectionDataResult] = await Promise.allSettled([
+        apiGet<ApiList<SchoolClassOption>>("/api/v1/core/classes/"),
+        apiGet<ApiList<SectionOption>>("/api/v1/core/sections/"),
+      ]);
+
+      if (defineDataResult.status === "fulfilled") {
+        setRows(listData(defineDataResult.value));
+      } else {
+        setRows([]);
+      }
+
+      if (roleDataResult.status === "fulfilled") {
+        setRoles(listData(roleDataResult.value));
+      } else {
+        setRoles([]);
+      }
+
+      if (leaveTypeDataResult.status === "fulfilled") {
+        setLeaveTypes(listData(leaveTypeDataResult.value));
+      } else {
+        setLeaveTypes([]);
+      }
+
+      if (classDataResult.status === "fulfilled") {
+        setClassRows(listData(classDataResult.value));
+      } else {
+        setClassRows([]);
+      }
+
+      if (sectionDataResult.status === "fulfilled") {
+        setSectionRows(listData(sectionDataResult.value));
+      } else {
+        setSectionRows([]);
+      }
+
+      await Promise.all([loadStaffByRole(roleId), loadStudents()]);
+
+      if (
+        defineDataResult.status === "rejected"
+        || roleDataResult.status === "rejected"
+        || leaveTypeDataResult.status === "rejected"
+        || classDataResult.status === "rejected"
+        || sectionDataResult.status === "rejected"
+      ) {
+        const firstRejected = [
+          defineDataResult,
+          roleDataResult,
+          leaveTypeDataResult,
+          classDataResult,
+          sectionDataResult,
+        ].find((item) => item.status === "rejected");
+        const errorMessage = firstRejected && firstRejected.status === "rejected"
+          ? (firstRejected.reason instanceof Error ? firstRejected.reason.message : String(firstRejected.reason || ""))
+          : "";
+        setError(mapLoadError(errorMessage));
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setError(mapLoadError(message));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1042,38 +2941,75 @@ export function HrLeaveDefinePanel() {
     void load();
   }, []);
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if ((!roleId && !staffId) || !leaveTypeId) {
-      setError("Select role or staff, and leave type.");
+  useEffect(() => {
+    void loadStaffByRole(roleId);
+  }, [roleId]);
+
+  useEffect(() => {
+    if (!isStudentRole) {
       return;
     }
-    if (roleId && staffId) {
-      setError("Select only role or staff.");
+
+    if (scopeType === "all") {
+      setClassId("");
+      setSectionId("");
+      setStudentId("");
+    }
+    if (scopeType === "class") {
+      setStudentId("");
+    }
+  }, [scopeType, isStudentRole]);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const nextErrors = validateForm();
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      setError("");
+      setToast("");
+      scrollToFirstError(nextErrors);
       return;
     }
 
     try {
+      setSaving(true);
+      setFieldErrors({});
       setError("");
+      setToast("");
       const payload = {
         role: roleId ? Number(roleId) : null,
         staff: staffId ? Number(staffId) : null,
+        school_class: classId ? Number(classId) : null,
+        section: sectionId ? Number(sectionId) : null,
+        student: studentId ? Number(studentId) : null,
         leave_type: Number(leaveTypeId),
         days: Number(days || "0"),
       };
       if (editingId) {
         await apiPatch(`/api/v1/hr/leave-defines/${editingId}/`, payload);
+        setToast("Leave define updated successfully.");
       } else {
         await apiPost("/api/v1/hr/leave-defines/", payload);
+        setToast("Leave defined successfully.");
       }
       setEditingId(null);
       setRoleId("");
       setStaffId("");
+      setClassId("");
+      setSectionId("");
+      setStudentId("");
       setLeaveTypeId("");
       setDays("0");
       await load();
-    } catch {
-      setError("Unable to save leave define.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Validation failed";
+      const field = mapApiMessageToField(message);
+      if (field) {
+        setFieldErrors((prev) => ({ ...prev, [field]: message }));
+      }
+      setError(message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1083,37 +3019,235 @@ export function HrLeaveDefinePanel() {
       <section className="admin-visitor-area up_st_admin_visitor"><div className="container-fluid p-0">
         <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
           <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Leave Define" : "Add Leave Define"}</h3>
-          <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 160px auto", gap: 8 }}>
-            <select value={roleId} onChange={(e) => { setRoleId(e.target.value); if (e.target.value) setStaffId(""); }} style={fieldStyle()}>
-              <option value="">Role (optional)</option>
-              {roles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-            <select value={staffId} onChange={(e) => { setStaffId(e.target.value); if (e.target.value) setRoleId(""); }} style={fieldStyle()}>
-              <option value="">Staff (optional)</option>
-              {staffRows.map((item) => <option key={item.id} value={item.id}>{item.first_name} {item.last_name} ({item.staff_no})</option>)}
-            </select>
-            <select value={leaveTypeId} onChange={(e) => setLeaveTypeId(e.target.value)} style={fieldStyle()}>
-              <option value="">Leave Type</option>
-              {leaveTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-            <input type="number" min="0" value={days} onChange={(e) => setDays(e.target.value)} placeholder="Days" style={fieldStyle()} />
-            <button type="submit" style={buttonStyle()}>{editingId ? "Update" : "Save"}</button>
+          <form onSubmit={submit} style={{ display: "grid", gap: 16 }}>
+            {/* Scope Selection */}
+            <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
+              <h4 style={{ margin: 0, fontSize: 14 }}>1. Scope Selection</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Role (optional)</label>
+                  <select
+                    id="leave-define-role"
+                    value={roleId}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const nextRole = roles.find((item) => String(item.id) === value);
+                      const nextIsStudentRole = !!nextRole && nextRole.name.trim().toLowerCase() === "student";
+                      setRoleId(value);
+                      clearFieldError("role");
+                      if (value && !nextIsStudentRole) {
+                        setStaffId("");
+                        setStudentId("");
+                      }
+                      if (nextIsStudentRole) {
+                        setScopeType("all");
+                        setStaffId("");
+                        clearFieldError("staff");
+                      } else {
+                        setClassId("");
+                        setSectionId("");
+                        setStudentId("");
+                        clearFieldError("school_class");
+                        clearFieldError("section");
+                        clearFieldError("student");
+                      }
+                    }}
+                    style={{ ...fieldStyle(), borderColor: fieldErrors.role ? "#dc2626" : "var(--line)" }}
+                  >
+                    <option value="">Role (optional)</option>
+                    {roles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                  {fieldErrors.role ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.role}</span> : null}
+                </div>
+
+                {isStudentRole ? (
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Scope</label>
+                    <select
+                      id="leave-define-scope"
+                      value={scopeType}
+                      onChange={(e) => setScopeType(e.target.value as "all" | "class" | "individual")}
+                      style={fieldStyle()}
+                    >
+                      <option value="all">All Students</option>
+                      <option value="class">Class / Section</option>
+                      <option value="individual">Individual Student</option>
+                    </select>
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Staff (optional)</label>
+                    <select
+                      id="leave-define-staff"
+                      value={staffId}
+                      onChange={(e) => { setStaffId(e.target.value); clearFieldError("staff"); if (e.target.value) setRoleId(""); }}
+                      style={{ ...fieldStyle(), borderColor: fieldErrors.staff ? "#dc2626" : "var(--line)" }}
+                      disabled={staffLoading || isStudentRole}
+                    >
+                      <option value="">{staffLoading ? "Loading staff..." : "Staff (optional)"}</option>
+                      {staffRows.map((item) => <option key={item.id} value={item.id}>{item.first_name} {item.last_name} ({item.staff_no})</option>)}
+                    </select>
+                    {fieldErrors.staff ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.staff}</span> : null}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Filters */}
+            {isStudentRole ? (
+              <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
+                <h4 style={{ margin: 0, fontSize: 14 }}>2. Filters</h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {scopeType !== "all" ? (
+                    <>
+                      <div style={{ display: "grid", gap: 4 }}>
+                        <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Class</label>
+                        <select
+                          id="leave-define-class"
+                          value={classId}
+                          onChange={(e) => {
+                            setClassId(e.target.value);
+                            setSectionId("");
+                            setStudentId("");
+                            clearFieldError("school_class");
+                            clearFieldError("section");
+                            clearFieldError("student");
+                          }}
+                          style={{ ...fieldStyle(), borderColor: fieldErrors.school_class ? "#dc2626" : "var(--line)" }}
+                        >
+                          <option value="">Select Class</option>
+                          {classRows.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                        </select>
+                        {fieldErrors.school_class ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.school_class}</span> : null}
+                      </div>
+
+                      <div style={{ display: "grid", gap: 4 }}>
+                        <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Section</label>
+                        <select
+                          id="leave-define-section"
+                          value={sectionId}
+                          onChange={(e) => {
+                            setSectionId(e.target.value);
+                            setStudentId("");
+                            clearFieldError("section");
+                            clearFieldError("student");
+                          }}
+                          style={{ ...fieldStyle(), borderColor: fieldErrors.section ? "#dc2626" : "var(--line)" }}
+                          disabled={!classId}
+                        >
+                          <option value="">{classId ? "Select Section" : "Select Class first"}</option>
+                          {filteredSections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                        </select>
+                        {fieldErrors.section ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.section}</span> : null}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ gridColumn: "1 / span 2", color: "var(--text-muted)", fontSize: 13 }}>
+                      Leave will be applied to all students.
+                    </div>
+                  )}
+
+                  {scopeType === "individual" ? (
+                    <div style={{ display: "grid", gap: 4 }}>
+                      <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Student</label>
+                      <select
+                        id="leave-define-student"
+                        value={studentId}
+                        onChange={(e) => { setStudentId(e.target.value); clearFieldError("student"); }}
+                        style={{ ...fieldStyle(), borderColor: fieldErrors.student ? "#dc2626" : "var(--line)" }}
+                        disabled={studentLoading || !classId || !sectionId}
+                      >
+                        <option value="">{studentLoading ? "Loading students..." : !classId || !sectionId ? "Select class and section first" : "Select Student"}</option>
+                        {filteredStudents.map((item) => <option key={item.id} value={item.id}>{item.first_name} {item.last_name} ({item.admission_no})</option>)}
+                      </select>
+                      {fieldErrors.student ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.student}</span> : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Leave Details */}
+            <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
+              <h4 style={{ margin: 0, fontSize: 14 }}>3. Leave Details</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Leave Type *</label>
+                  <select id="leave-define-leave-type" value={leaveTypeId} onChange={(e) => { setLeaveTypeId(e.target.value); clearFieldError("leave_type"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.leave_type ? "#dc2626" : "var(--line)" }}>
+                    <option value="">Leave Type</option>
+                    {leaveTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                  {fieldErrors.leave_type ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.leave_type}</span> : null}
+                </div>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Days *</label>
+                  <input id="leave-define-days" type="number" min="1" step="1" value={days} onChange={(e) => { setDays(e.target.value); clearFieldError("days"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.days ? "#dc2626" : "var(--line)" }} />
+                  {fieldErrors.days ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.days}</span> : null}
+                </div>
+              </div>
+            </div>
+
+            {/* Save Action */}
+            <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "flex", justifyContent: "flex-end" }}>
+              <button type="submit" style={buttonStyle()} disabled={saving || loading}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</button>
+            </div>
           </form>
           {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
+          {toast ? <p style={{ color: "#16a34a", marginTop: 8 }}>{toast}</p> : null}
         </div>
 
         <div className="white-box" style={boxStyle()}>
+          {loading ? <p style={{ marginTop: 0, color: "var(--text-muted)" }}>Loading leave define data...</p> : null}
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Scope</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Leave Type</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Days</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th></tr></thead>
             <tbody>
+              {noLeaveDefinitions ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: 12, color: "var(--text-muted)", borderBottom: "1px solid var(--line)" }}>
+                    No leave definitions found.
+                  </td>
+                </tr>
+              ) : null}
               {rows.map((row) => (
                 <tr key={row.id}>
-                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.role_name || row.staff_name || "-"}</td>
+                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                    {row.student_name
+                      ? `${row.student_name} (${row.class_name || "-"}/${row.section_name || "-"})`
+                      : row.class_name && row.section_name
+                        ? `Students: ${row.class_name} - ${row.section_name}`
+                        : row.role_name === "Student"
+                          ? "All Students"
+                          : row.role_name || row.staff_name || "-"}
+                  </td>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.leave_type_name || row.leave_type}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.days}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <button type="button" style={buttonStyle("#0ea5e9")} onClick={() => { setEditingId(row.id); setRoleId(row.role ? String(row.role) : ""); setStaffId(row.staff ? String(row.staff) : ""); setLeaveTypeId(String(row.leave_type)); setDays(String(row.days)); }}>Edit</button>
+                      <button
+                        type="button"
+                        style={buttonStyle("#0ea5e9")}
+                        onClick={() => {
+                          if (row.role_name === "Student") {
+                            if (row.student) {
+                              setScopeType("individual");
+                            } else if (row.school_class && row.section) {
+                              setScopeType("class");
+                            } else {
+                              setScopeType("all");
+                            }
+                          }
+                          setEditingId(row.id);
+                          setRoleId(row.role ? String(row.role) : "");
+                          setStaffId(row.staff ? String(row.staff) : "");
+                          setClassId(row.school_class ? String(row.school_class) : "");
+                          setSectionId(row.section ? String(row.section) : "");
+                          setStudentId(row.student ? String(row.student) : "");
+                          setLeaveTypeId(String(row.leave_type));
+                          setDays(String(row.days));
+                        }}
+                      >
+                        Edit
+                      </button>
                       <button type="button" style={buttonStyle("#dc2626")} onClick={() => void apiDelete(`/api/v1/hr/leave-defines/${row.id}/`).then(load).catch(() => setError("Unable to delete leave define."))}>Delete</button>
                     </div>
                   </td>

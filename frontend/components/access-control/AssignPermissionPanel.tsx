@@ -30,10 +30,17 @@ type PermissionTreeResponse = {
   modules: ModuleNode[];
 };
 
-type ApiList<T> = T[] | { results?: T[] };
+type ApiList<T> = T[] | { results?: T[]; data?: T[] };
+type ApiWrapped<T> = T | { data?: T };
 
 function listData<T>(payload: ApiList<T>): T[] {
-  return Array.isArray(payload) ? payload : payload.results || [];
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (Array.isArray(payload.data)) {
+    return payload.data;
+  }
+  return payload.results || [];
 }
 
 function boxStyle() {
@@ -103,8 +110,9 @@ export function AssignPermissionPanel() {
       const payload = await apiRequestWithRefresh<ApiList<RoleItem>>("/api/v1/access-control/roles/");
       const rows = listData(payload);
       setRoles(rows);
-      if (!roleId && rows.length > 0) {
-        setRoleId(rows[0].id);
+      // Keep role selected from URL/query; only default to first role when nothing is selected.
+      if (rows.length > 0) {
+        setRoleId((current) => current ?? rows[0].id);
       }
     } catch {
       setError("Failed to load roles.");
@@ -117,10 +125,11 @@ export function AssignPermissionPanel() {
     setLoadingTree(true);
     setError("");
     try {
-      const payload = await apiRequestWithRefresh<PermissionTreeResponse>(
+      const payload = await apiRequestWithRefresh<ApiWrapped<PermissionTreeResponse>>(
         `/api/v1/access-control/roles/${selectedRoleId}/permission-tree/`,
       );
-      const rows = payload.modules || [];
+      const tree = "data" in (payload as object) ? (payload as { data?: PermissionTreeResponse }).data : (payload as PermissionTreeResponse);
+      const rows = tree?.modules || [];
       setModules(rows);
       setExpandedModules(
         rows.reduce<Record<string, boolean>>((acc, row, idx) => {
