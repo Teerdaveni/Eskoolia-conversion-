@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -2020,7 +2020,7 @@ export function HrStaffDirectoryPanel() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to load staff directory";
-      setError(`⚠️ Error: ${message}`);
+      setError(`ΓÜá∩╕Å Error: ${message}`);
     } finally {
       setLoading(false);
     }
@@ -2236,7 +2236,7 @@ export function HrStaffDirectoryPanel() {
 
           {/* Results info */}
           <div style={{ marginBottom: 12, fontSize: 12, color: "var(--text-muted)" }}>
-            Showing {paginatedRows.length === 0 ? "0" : startIdx + 1}–{Math.min(endIdx, filteredRows.length)} of {filteredRows.length} staff member{filteredRows.length !== 1 ? "s" : ""}
+            Showing {paginatedRows.length === 0 ? "0" : startIdx + 1}ΓÇô{Math.min(endIdx, filteredRows.length)} of {filteredRows.length} staff member{filteredRows.length !== 1 ? "s" : ""}
           </div>
 
           {/* Table */}
@@ -2378,7 +2378,7 @@ export function HrStaffDirectoryPanel() {
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
               >
-                ← Previous
+                ΓåÉ Previous
               </button>
 
               <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -2409,7 +2409,7 @@ export function HrStaffDirectoryPanel() {
                 onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                 disabled={currentPage === totalPages}
               >
-                Next →
+                Next ΓåÆ
               </button>
             </div>
           )}
@@ -4185,7 +4185,7 @@ export function HrLeaveRequestsPanel() {
                 />
                 {fieldErrors.reason && <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.reason}</span>}
                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  {reason.trim().length === 0 ? "Optional field" : reason.trim().length < minReasonLength ? `Add ${minReasonLength - reason.trim().length} more characters` : "✓ Valid length"}
+                  {reason.trim().length === 0 ? "Optional field" : reason.trim().length < minReasonLength ? `Add ${minReasonLength - reason.trim().length} more characters` : "Γ£ô Valid length"}
                 </span>
               </div>
             </div>
@@ -4211,7 +4211,7 @@ export function HrLeaveRequestsPanel() {
                   style={{ ...fieldStyle(), borderColor: fieldErrors.attachment ? "#dc2626" : "var(--line)" }}
                 />
                 {fieldErrors.attachment && <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.attachment}</span>}
-                {attachmentFile && <div style={{ color: "#059669", fontSize: 12 }}>✓ Selected: {attachmentFile.name} ({(attachmentFile.size / 1024).toFixed(2)} KB)</div>}
+                {attachmentFile && <div style={{ color: "#059669", fontSize: 12 }}>Γ£ô Selected: {attachmentFile.name} ({(attachmentFile.size / 1024).toFixed(2)} KB)</div>}
                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Allowed: PDF, JPG, PNG | Max size: 5MB</span>
               </div>
             </div>
