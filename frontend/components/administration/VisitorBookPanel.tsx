@@ -195,8 +195,10 @@ export function VisitorBookPanel() {
     if (!date) nextErrors.date = "Date is required.";
     if (!inTime.trim()) nextErrors.inTime = "In time is required.";
     if (!outTime.trim()) nextErrors.outTime = "Out time is required.";
-    if (phone.trim() && !/^\+?[0-9\s().-]+$/.test(phone.trim())) {
-      nextErrors.phone = "Enter a valid phone number.";
+    if (phone.trim() && !/^\d{1,12}$/.test(phone.trim())) {
+      nextErrors.phone = phone.trim().length > 12
+        ? "Phone number must not exceed 12 digits."
+        : "Phone number must contain digits only.";
     }
     if (inTime.trim() && outTime.trim() && outTime.trim() < inTime.trim()) {
       nextErrors.outTime = "Out time must be later than or equal to in time.";
@@ -329,10 +331,11 @@ export function VisitorBookPanel() {
                 <input
                   value={phone}
                   onChange={(e) => {
-                    setPhone(e.target.value);
+                    setPhone(e.target.value.replace(/\D/g, "").slice(0, 12));
                     if (fieldErrors.phone) setFieldErrors((prev) => ({ ...prev, phone: "" }));
                   }}
                   placeholder="Phone"
+                  maxLength={12}
                   style={{ ...fieldStyle(), borderColor: fieldErrors.phone ? "#dc2626" : "var(--line)" }}
                 />
                 {fieldErrors.phone ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.phone}</span> : null}

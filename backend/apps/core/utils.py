@@ -110,8 +110,8 @@ class ValidationUtils:
     def validate_phone(phone):
         """Validate phone number format."""
         import re
-        phone_regex = r'^[\d\s\-\+\(\)]{10,}$'
-        return re.match(phone_regex, phone.replace(' ', '')) is not None
+        phone_regex = r'^\d{1,12}$'
+        return re.match(phone_regex, str(phone or '').strip()) is not None
     
     @staticmethod
     def validate_required_fields(data, required_fields):

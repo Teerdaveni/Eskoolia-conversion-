@@ -1,3 +1,4 @@
+import re
 from rest_framework import serializers
 from .models import (
     AcademicYear, Class, ClassPeriod, ClassRoom, Section, Subject, 
@@ -99,6 +100,14 @@ class ItemStoreSerializer(serializers.ModelSerializer):
 
 
 class SupplierSerializer(serializers.ModelSerializer):
+    def validate_phone(self, value):
+        phone = str(value or "").strip()
+        if not phone:
+            return ""
+        if not re.fullmatch(r"\d{1,12}", phone):
+            raise serializers.ValidationError("Phone number must contain digits only and must not exceed 12 digits.")
+        return phone
+
     class Meta:
         model = Supplier
         fields = ["id", "school", "name", "contact_person", "email", "phone", "address", "city", "country", "tax_id", "payment_terms", "is_active", "created_at", "updated_at"]

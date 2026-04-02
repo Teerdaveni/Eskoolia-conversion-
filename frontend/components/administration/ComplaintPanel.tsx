@@ -175,8 +175,10 @@ export function ComplaintPanel() {
     if (!complaintBy.trim()) nextErrors.complaintBy = "Complaint by is required.";
     if (!complaintType.trim()) nextErrors.complaintType = "Complaint type is required.";
     if (!complaintSource.trim()) nextErrors.complaintSource = "Complaint source is required.";
-    if (phone.trim() && !/^\+?[0-9\s().-]+$/.test(phone.trim())) {
-      nextErrors.phone = "Enter a valid phone number.";
+    if (phone.trim() && !/^\d{1,12}$/.test(phone.trim())) {
+      nextErrors.phone = phone.trim().length > 12
+        ? "Phone number must not exceed 12 digits."
+        : "Phone number must contain digits only.";
     }
     if (Object.keys(nextErrors).length > 0) {
       setFieldErrors(nextErrors);
@@ -315,10 +317,11 @@ export function ComplaintPanel() {
                 <input
                   value={phone}
                   onChange={(e) => {
-                    setPhone(e.target.value);
+                    setPhone(e.target.value.replace(/\D/g, "").slice(0, 12));
                     if (fieldErrors.phone) setFieldErrors((prev) => ({ ...prev, phone: "" }));
                   }}
                   placeholder="Phone"
+                  maxLength={12}
                   style={{ ...fieldStyle(), borderColor: fieldErrors.phone ? "#dc2626" : "var(--line)" }}
                 />
                 {fieldErrors.phone ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.phone}</span> : null}

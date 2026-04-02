@@ -19,7 +19,7 @@ from .models import (
 )
 
 
-PHONE_PATTERN = re.compile(r"^\+?[0-9\s().-]+$")
+PHONE_PATTERN = re.compile(r"^\d{1,12}$")
 
 
 def _normalize_phone(value, field_name, required=False):
@@ -29,10 +29,11 @@ def _normalize_phone(value, field_name, required=False):
             raise serializers.ValidationError({field_name: "This field is required."})
         return ""
 
+    if not phone.isdigit():
+        raise serializers.ValidationError({field_name: "Phone number must contain digits only."})
+    if len(phone) > 12:
+        raise serializers.ValidationError({field_name: "Phone number must not exceed 12 digits."})
     if not PHONE_PATTERN.match(phone):
-        raise serializers.ValidationError({field_name: "Enter a valid phone number."})
-
-    if not any(ch.isdigit() for ch in phone):
         raise serializers.ValidationError({field_name: "Enter a valid phone number."})
 
     return phone
@@ -122,6 +123,16 @@ class AdmissionInquirySerializer(serializers.ModelSerializer):
         if obj.created_by:
             return obj.created_by.get_full_name() or obj.created_by.username
         return None
+
+    def validate(self, attrs):
+        phone = _normalize_phone(
+            attrs.get("phone", getattr(self.instance, "phone", "")),
+            "phone",
+            required=False,
+        )
+        if "phone" in attrs:
+            attrs["phone"] = phone
+        return super().validate(attrs)
 
 
 class VisitorBookEntrySerializer(serializers.ModelSerializer):
@@ -349,6 +360,13 @@ class ComplaintEntrySerializer(serializers.ModelSerializer):
             attrs["complaint_type"] = self._resolve_setup_name(attrs.get("complaint_type"), "2", "complaint_type")
         if "complaint_source" in attrs:
             attrs["complaint_source"] = self._resolve_setup_name(attrs.get("complaint_source"), "3", "complaint_source")
+        phone = _normalize_phone(
+            attrs.get("phone", getattr(self.instance, "phone", "")),
+            "phone",
+            required=False,
+        )
+        if "phone" in attrs:
+            attrs["phone"] = phone
         return super().validate(attrs)
 
     def get_file_url(self, obj):

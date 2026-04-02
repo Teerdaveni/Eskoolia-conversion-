@@ -195,6 +195,12 @@ export function StudentAddPanel() {
       setError("Guardian name, relation, and phone are required.");
       return;
     }
+    if (!/^\d{1,12}$/.test(newGuardianPhone.trim())) {
+      setError(newGuardianPhone.trim().length > 12
+        ? "Phone number must not exceed 12 digits."
+        : "Phone number must contain digits only.");
+      return;
+    }
     try {
       setError("");
       const created = await apiPost<Guardian>("/api/v1/students/guardians/", {
@@ -405,7 +411,7 @@ export function StudentAddPanel() {
                 </div>
                 <div>
                   <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Phone</label>
-                  <input value={newGuardianPhone} onChange={(e) => setNewGuardianPhone(e.target.value)} style={fieldStyle()} />
+                  <input value={newGuardianPhone} onChange={(e) => setNewGuardianPhone(e.target.value.replace(/\D/g, "").slice(0, 12))} maxLength={12} style={fieldStyle()} />
                 </div>
                 <div>
                   <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Email</label>

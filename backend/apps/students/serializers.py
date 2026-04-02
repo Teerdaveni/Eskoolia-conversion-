@@ -1,4 +1,5 @@
 from django.utils.html import strip_tags
+import re
 from rest_framework import serializers
 from .models import (
     Guardian,
@@ -51,6 +52,14 @@ class StudentGroupSerializer(serializers.ModelSerializer):
 
 
 class GuardianSerializer(serializers.ModelSerializer):
+    def validate_phone(self, value):
+        phone = str(value or "").strip()
+        if not phone:
+            raise serializers.ValidationError("Phone is required.")
+        if not re.fullmatch(r"\d{1,12}", phone):
+            raise serializers.ValidationError("Phone number must contain digits only and must not exceed 12 digits.")
+        return phone
+
     class Meta:
         model = Guardian
         fields = [

@@ -60,6 +60,12 @@ export function SupplierPanel() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.phone.trim() && !/^\d{1,12}$/.test(formData.phone.trim())) {
+      setError(formData.phone.trim().length > 12
+        ? "Phone number must not exceed 12 digits."
+        : "Phone number must contain digits only.");
+      return;
+    }
     try {
       const method = editingId ? "PUT" : "POST";
       const url = editingId ? `/api/v1/core/suppliers/${editingId}/` : "/api/v1/core/suppliers/";
@@ -151,8 +157,9 @@ export function SupplierPanel() {
                 <label style={{ display: "block", fontSize: "14px", fontWeight: "500", marginBottom: "8px" }}>Phone</label>
                 <Input
                   value={formData.phone}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, phone: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, "").slice(0, 12) })}
                   placeholder="Phone number"
+                  maxLength={12}
                 />
               </div>
             </div>

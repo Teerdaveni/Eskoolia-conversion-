@@ -188,6 +188,13 @@ export function AdmissionsPanel() {
       return;
     }
 
+    if (form.phone.trim() && !/^\d{1,12}$/.test(form.phone.trim())) {
+      setError(form.phone.trim().length > 12
+        ? "Phone number must not exceed 12 digits."
+        : "Phone number must contain digits only.");
+      return;
+    }
+
     const payload = {
       full_name: form.full_name.trim(),
       phone: form.phone.trim(),
@@ -309,7 +316,7 @@ export function AdmissionsPanel() {
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Admission Query" : "Add Admission Query"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
                 <input value={form.full_name} onChange={(e) => onChange("full_name", e.target.value)} placeholder="Name" style={fieldStyle()} />
-                <input value={form.phone} onChange={(e) => onChange("phone", e.target.value)} placeholder="Phone" style={fieldStyle()} />
+                <input value={form.phone} onChange={(e) => onChange("phone", e.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="Phone" maxLength={12} style={fieldStyle()} />
                 <input type="email" value={form.email} onChange={(e) => onChange("email", e.target.value)} placeholder="Email" style={fieldStyle()} />
                 <textarea value={form.address} onChange={(e) => onChange("address", e.target.value)} placeholder="Address" rows={2} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
                 <textarea value={form.description} onChange={(e) => onChange("description", e.target.value)} placeholder="Description" rows={2} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
