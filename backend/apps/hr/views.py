@@ -1,15 +1,20 @@
 from decimal import Decimal
 import re
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from django.contrib.auth import get_user_model
+from django.http import Http404
 from django.utils import timezone
-from rest_framework import permissions, viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from apps.access_control.models import UserRole
+from apps.core.models import Class as SchoolClass, Section
+from apps.students.models import Student
 
 from .models import Department, Designation, LeaveDefine, LeaveRequest, LeaveType, PayrollRecord, Staff, StaffAttendance
 from .serializers import (
@@ -70,6 +75,104 @@ class DepartmentViewSet(SchoolScopedModelViewSet):
     ordering_fields = ["name", "created_at"]
     permission_codes = {"*": "human_resource.departments.view"}
 
+    def success_response(self, message, data=None, status_code=status.HTTP_200_OK):
+        return Response(
+            {
+                "success": True,
+                "message": message,
+                "data": data if data is not None else {},
+            },
+            status=status_code,
+        )
+
+    def error_response(self, message, status_code, errors=None):
+        return Response(
+            {
+                "success": False,
+                "message": message,
+                "errors": errors if errors is not None else {},
+            },
+            status=status_code,
+        )
+
+    def get_object(self):
+        try:
+            return super().get_object()
+        except (Http404, ValueError, TypeError, DjangoValidationError):
+            raise NotFound("Department not found")
+
+    def handle_exception(self, exc):
+        if isinstance(exc, (NotAuthenticated, AuthenticationFailed)):
+            return self.error_response(
+                "Authentication credentials were not provided or invalid",
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if isinstance(exc, PermissionDenied):
+            return self.error_response(
+                "You do not have permission to perform this action",
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if isinstance(exc, NotFound):
+            return self.error_response(str(exc.detail), status.HTTP_404_NOT_FOUND)
+
+        if isinstance(exc, ValidationError):
+            errors = exc.detail if isinstance(exc.detail, dict) else {}
+            message = "Validation failed"
+            if isinstance(exc.detail, dict) and exc.detail:
+                first_val = next(iter(exc.detail.values()))
+                if isinstance(first_val, list) and first_val:
+                    message = str(first_val[0])
+                elif isinstance(first_val, str):
+                    message = first_val
+            elif isinstance(exc.detail, list) and exc.detail:
+                message = str(exc.detail[0])
+            elif isinstance(exc.detail, str):
+                message = exc.detail
+
+            return self.error_response(message, status.HTTP_400_BAD_REQUEST, errors=errors)
+
+        return self.error_response("Internal server error", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def create(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            return self.success_response(
+                "Department created successfully",
+                serializer.data,
+                status_code=status.HTTP_201_CREATED,
+            )
+        except IntegrityError:
+            raise ValidationError({"name": "Department already exists"})
+
+    def update(self, request, *args, **kwargs):
+        try:
+            partial = kwargs.pop("partial", False)
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            return self.success_response("Department updated successfully", serializer.data)
+        except IntegrityError:
+            raise ValidationError({"name": "Department already exists"})
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def perform_destroy(self, instance):
+        if instance.staff_members.exists():
+            raise ValidationError({"department": "Cannot delete department assigned to employees"})
+        instance.delete()
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return self.success_response("Department deleted successfully", data={})
+
 
 class DesignationViewSet(SchoolScopedModelViewSet):
     queryset = Designation.objects.select_related("school", "department").all()
@@ -78,6 +181,113 @@ class DesignationViewSet(SchoolScopedModelViewSet):
     search_fields = ["name", "department__name"]
     ordering_fields = ["name", "created_at"]
     permission_codes = {"*": "human_resource.designations.view"}
+
+    def success_response(self, message, data=None, status_code=status.HTTP_200_OK):
+        return Response(
+            {
+                "success": True,
+                "message": message,
+                "data": data if data is not None else {},
+            },
+            status=status_code,
+        )
+
+    def error_response(self, message, status_code, errors=None):
+        return Response(
+            {
+                "success": False,
+                "message": message,
+                "errors": errors if errors is not None else {},
+            },
+            status=status_code,
+        )
+
+    def get_object(self):
+        try:
+            return super().get_object()
+        except (Http404, ValueError, TypeError, DjangoValidationError):
+            raise NotFound("Designation not found")
+
+    def handle_exception(self, exc):
+        if isinstance(exc, (NotAuthenticated, AuthenticationFailed)):
+            return self.error_response(
+                "Authentication credentials were not provided or invalid",
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if isinstance(exc, PermissionDenied):
+            return self.error_response(
+                "You do not have permission to perform this action",
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if isinstance(exc, NotFound):
+            return self.error_response(str(exc.detail), status.HTTP_404_NOT_FOUND)
+
+        if isinstance(exc, ValidationError):
+            errors = exc.detail if isinstance(exc.detail, dict) else {}
+            message = "Validation failed"
+            if isinstance(exc.detail, dict) and exc.detail:
+                first_val = next(iter(exc.detail.values()))
+                if isinstance(first_val, list) and first_val:
+                    message = str(first_val[0])
+                elif isinstance(first_val, str):
+                    message = first_val
+            elif isinstance(exc.detail, list) and exc.detail:
+                message = str(exc.detail[0])
+            elif isinstance(exc.detail, str):
+                message = exc.detail
+
+            return self.error_response(message, status.HTTP_400_BAD_REQUEST, errors=errors)
+
+        return self.error_response("Internal server error", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def create(self, request, *args, **kwargs):
+        try:
+            department_id = request.data.get("department")
+            if department_id and not Department.objects.filter(id=department_id).exists():
+                raise NotFound("Department not found")
+
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            return self.success_response(
+                "Designation created successfully",
+                serializer.data,
+                status_code=status.HTTP_201_CREATED,
+            )
+        except IntegrityError:
+            raise ValidationError({"name": "Designation already exists in this department"})
+
+    def update(self, request, *args, **kwargs):
+        try:
+            partial = kwargs.pop("partial", False)
+            department_id = request.data.get("department")
+            if department_id and not Department.objects.filter(id=department_id).exists():
+                raise NotFound("Department not found")
+
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            return self.success_response("Designation updated successfully", serializer.data)
+        except IntegrityError:
+            raise ValidationError({"name": "Designation already exists in this department"})
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def perform_destroy(self, instance):
+        # 400 business rule: block deletion if any employee/staff is linked.
+        if instance.staff_members.exists():
+            raise ValidationError({"designation": "Cannot delete designation assigned to employees"})
+        instance.delete()
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return self.success_response("Designation deleted successfully", data={})
 
 
 class StaffViewSet(SchoolScopedModelViewSet):
@@ -90,6 +300,133 @@ class StaffViewSet(SchoolScopedModelViewSet):
         "*": "human_resource.staff.view",
         "next_staff_no": "human_resource.staff.view",
     }
+
+    def success_response(self, message, data=None, status_code=status.HTTP_200_OK):
+        return Response(
+            {
+                "success": True,
+                "message": message,
+                "data": data if data is not None else {},
+            },
+            status=status_code,
+        )
+
+    def error_response(self, message, status_code, errors=None):
+        return Response(
+            {
+                "success": False,
+                "message": message,
+                "errors": errors if errors is not None else {},
+            },
+            status=status_code,
+        )
+
+    def get_object(self):
+        try:
+            return super().get_object()
+        except (Http404, ValueError, TypeError, DjangoValidationError):
+            raise NotFound("Staff not found")
+
+    def handle_exception(self, exc):
+        if isinstance(exc, (NotAuthenticated, AuthenticationFailed)):
+            return self.error_response(
+                "Authentication credentials were not provided or invalid",
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if isinstance(exc, PermissionDenied):
+            return self.error_response(
+                "You do not have permission to perform this action",
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if isinstance(exc, NotFound):
+            return self.error_response(str(exc.detail), status.HTTP_404_NOT_FOUND)
+
+        if isinstance(exc, ValidationError):
+            errors = exc.detail if isinstance(exc.detail, dict) else {}
+            message = "Validation failed"
+            if isinstance(exc.detail, dict) and exc.detail:
+                first_val = next(iter(exc.detail.values()))
+                if isinstance(first_val, list) and first_val:
+                    message = str(first_val[0])
+                elif isinstance(first_val, str):
+                    message = first_val
+            elif isinstance(exc.detail, list) and exc.detail:
+                message = str(exc.detail[0])
+            elif isinstance(exc.detail, str):
+                message = exc.detail
+
+            return self.error_response(message, status.HTTP_400_BAD_REQUEST, errors=errors)
+
+        return self.error_response("Internal server error", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _validate_related_ids(self, request):
+        from apps.access_control.models import Role
+
+        school_id = request.user.school_id
+
+        def parse_fk_id(field):
+            raw = request.data.get(field)
+            if raw in (None, ""):
+                return None
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                raise ValidationError({field: "Invalid identifier."})
+            if value <= 0:
+                raise ValidationError({field: "Invalid identifier."})
+            return value
+
+        role_id = parse_fk_id("role")
+        department_id = parse_fk_id("department")
+        designation_id = parse_fk_id("designation")
+
+        role_qs = Role.objects.all()
+        dept_qs = Department.objects.all()
+        desg_qs = Designation.objects.all()
+
+        if school_id and not request.user.is_superuser:
+            role_qs = role_qs.filter(school_id=school_id)
+            dept_qs = dept_qs.filter(school_id=school_id)
+            desg_qs = desg_qs.filter(school_id=school_id)
+
+        if role_id and not role_qs.filter(id=role_id).exists():
+            raise NotFound("Role not found")
+        if department_id and not dept_qs.filter(id=department_id).exists():
+            raise NotFound("Department not found")
+        if designation_id and not desg_qs.filter(id=designation_id).exists():
+            raise NotFound("Designation not found")
+
+    def create(self, request, *args, **kwargs):
+        try:
+            self._validate_related_ids(request)
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            return self.success_response(
+                "Staff created successfully",
+                serializer.data,
+                status_code=status.HTTP_201_CREATED,
+            )
+        except IntegrityError:
+            raise ValidationError({"staff_no": "Staff number already exists."})
+
+    def update(self, request, *args, **kwargs):
+        try:
+            partial = kwargs.pop("partial", False)
+            self._validate_related_ids(request)
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            return self.success_response("Staff updated successfully", serializer.data)
+        except IntegrityError:
+            raise ValidationError({"staff_no": "Staff number already exists."})
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
 
     def get_queryset(self):
         """Return school staff members. Optionally filter by driver role for vehicle dropdown."""
@@ -220,14 +557,260 @@ class LeaveTypeViewSet(SchoolScopedModelViewSet):
     ordering_fields = ["name", "created_at"]
     permission_codes = {"*": "human_resource.leave_type.view"}
 
+    def success_response(self, message, data=None, status_code=status.HTTP_200_OK):
+        return Response(
+            {
+                "success": True,
+                "message": message,
+                "data": data if data is not None else {},
+            },
+            status=status_code,
+        )
+
+    def error_response(self, message, status_code, errors=None):
+        return Response(
+            {
+                "success": False,
+                "message": message,
+                "errors": errors if errors is not None else {},
+            },
+            status=status_code,
+        )
+
+    def get_object(self):
+        try:
+            return super().get_object()
+        except (Http404, ValueError, TypeError, DjangoValidationError):
+            raise NotFound("Leave type not found")
+
+    def handle_exception(self, exc):
+        if isinstance(exc, (NotAuthenticated, AuthenticationFailed)):
+            return self.error_response(
+                "Authentication credentials were not provided or invalid",
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if isinstance(exc, PermissionDenied):
+            return self.error_response(
+                "You do not have permission to perform this action",
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if isinstance(exc, NotFound):
+            return self.error_response(str(exc.detail), status.HTTP_404_NOT_FOUND)
+
+        if isinstance(exc, ValidationError):
+            errors = exc.detail if isinstance(exc.detail, dict) else {}
+            message = "Validation failed"
+            if isinstance(exc.detail, dict) and exc.detail:
+                first_val = next(iter(exc.detail.values()))
+                if isinstance(first_val, list) and first_val:
+                    message = str(first_val[0])
+                elif isinstance(first_val, str):
+                    message = first_val
+            elif isinstance(exc.detail, list) and exc.detail:
+                message = str(exc.detail[0])
+            elif isinstance(exc.detail, str):
+                message = exc.detail
+
+            return self.error_response(message, status.HTTP_400_BAD_REQUEST, errors=errors)
+
+        return self.error_response("Internal server error", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return self.success_response(
+            "Leave type created successfully",
+            serializer.data,
+            status_code=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return self.success_response("Leave type updated successfully", serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def perform_destroy(self, instance):
+        # Business rule: leave types in use cannot be deleted.
+        if instance.leave_defines.exists() or instance.leave_requests.exists():
+            raise ValidationError({"leave_type": "Cannot delete leave type because it is assigned to employees."})
+        instance.delete()
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return self.success_response("Leave type deleted successfully", data={})
+
 
 class LeaveDefineViewSet(SchoolScopedModelViewSet):
-    queryset = LeaveDefine.objects.select_related("school", "role", "staff", "leave_type").all()
+    queryset = LeaveDefine.objects.select_related("school", "role", "staff", "student", "school_class", "section", "leave_type").all()
     serializer_class = LeaveDefineSerializer
-    filterset_fields = ["role", "staff", "leave_type"]
-    search_fields = ["role__name", "staff__first_name", "staff__last_name", "leave_type__name"]
+    filterset_fields = ["role", "staff", "student", "school_class", "section", "leave_type"]
+    search_fields = [
+        "role__name",
+        "staff__first_name",
+        "staff__last_name",
+        "student__first_name",
+        "student__last_name",
+        "student__admission_no",
+        "school_class__name",
+        "section__name",
+        "leave_type__name",
+    ]
     ordering_fields = ["created_at", "days"]
     permission_codes = {"*": "human_resource.leave_define.view"}
+
+    def success_response(self, message, data=None, status_code=status.HTTP_200_OK):
+        return Response(
+            {
+                "success": True,
+                "message": message,
+                "data": data if data is not None else {},
+            },
+            status=status_code,
+        )
+
+    def error_response(self, message, status_code, errors=None):
+        return Response(
+            {
+                "success": False,
+                "message": message,
+                "errors": errors if errors is not None else {},
+            },
+            status=status_code,
+        )
+
+    def get_object(self):
+        try:
+            return super().get_object()
+        except (Http404, ValueError, TypeError, DjangoValidationError):
+            raise NotFound("Leave define not found")
+
+    def handle_exception(self, exc):
+        if isinstance(exc, (NotAuthenticated, AuthenticationFailed)):
+            return self.error_response(
+                "Authentication credentials were not provided or invalid",
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if isinstance(exc, PermissionDenied):
+            return self.error_response(
+                "You do not have permission to perform this action",
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if isinstance(exc, NotFound):
+            return self.error_response(str(exc.detail), status.HTTP_404_NOT_FOUND)
+
+        if isinstance(exc, ValidationError):
+            errors = exc.detail if isinstance(exc.detail, dict) else {}
+            message = "Validation failed"
+            if isinstance(exc.detail, dict) and exc.detail:
+                first_val = next(iter(exc.detail.values()))
+                if isinstance(first_val, list) and first_val:
+                    message = str(first_val[0])
+                elif isinstance(first_val, str):
+                    message = first_val
+            elif isinstance(exc.detail, list) and exc.detail:
+                message = str(exc.detail[0])
+            elif isinstance(exc.detail, str):
+                message = exc.detail
+
+            return self.error_response(message, status.HTTP_400_BAD_REQUEST, errors=errors)
+
+        return self.error_response("Internal server error", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _validate_related_ids(self, request):
+        from apps.access_control.models import Role
+
+        school_id = request.user.school_id
+
+        def parse_fk_id(field):
+            raw = request.data.get(field)
+            if raw in (None, ""):
+                return None
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                raise ValidationError({field: "Invalid identifier."})
+            if value <= 0:
+                raise ValidationError({field: "Invalid identifier."})
+            return value
+
+        role_id = parse_fk_id("role")
+        staff_id = parse_fk_id("staff")
+        student_id = parse_fk_id("student")
+        class_id = parse_fk_id("school_class")
+        section_id = parse_fk_id("section")
+        leave_type_id = parse_fk_id("leave_type")
+
+        role_qs = Role.objects.all()
+        staff_qs = Staff.objects.all()
+        student_qs = Student.objects.all()
+        class_qs = SchoolClass.objects.all()
+        section_qs = Section.objects.select_related("school_class")
+        leave_type_qs = LeaveType.objects.all()
+
+        if school_id and not request.user.is_superuser:
+            role_qs = role_qs.filter(school_id=school_id)
+            staff_qs = staff_qs.filter(school_id=school_id)
+            student_qs = student_qs.filter(school_id=school_id)
+            class_qs = class_qs.filter(school_id=school_id)
+            section_qs = section_qs.filter(school_class__school_id=school_id)
+            leave_type_qs = leave_type_qs.filter(school_id=school_id)
+
+        if role_id and not role_qs.filter(id=role_id).exists():
+            raise NotFound("Role not found")
+        if staff_id and not staff_qs.filter(id=staff_id).exists():
+            raise NotFound("Staff not found")
+        if student_id and not student_qs.filter(id=student_id).exists():
+            raise NotFound("Student not found")
+        if class_id and not class_qs.filter(id=class_id).exists():
+            raise NotFound("Class not found")
+        if section_id and not section_qs.filter(id=section_id).exists():
+            raise NotFound("Section not found")
+        if class_id and section_id and not section_qs.filter(id=section_id, school_class_id=class_id).exists():
+            raise ValidationError({"section": "Selected section does not belong to selected class."})
+        if leave_type_id and not leave_type_qs.filter(id=leave_type_id).exists():
+            raise NotFound("Leave type not found")
+
+    def create(self, request, *args, **kwargs):
+        self._validate_related_ids(request)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return self.success_response(
+            "Leave defined successfully",
+            serializer.data,
+            status_code=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        self._validate_related_ids(request)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return self.success_response("Leave define updated successfully", serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return self.success_response("Leave define deleted successfully", data={})
 
 
 class LeaveRequestViewSet(SchoolScopedModelViewSet):

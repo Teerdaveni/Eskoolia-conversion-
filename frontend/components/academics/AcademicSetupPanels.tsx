@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequestWithRefresh } from "@/lib/api-auth";
+import { TimeSpinnerPicker } from "@/components/common/TimeSpinnerPicker";
 
 type AcademicYear = { id: number; name: string; is_current: boolean };
 type SchoolClass = { id: number; name: string };
@@ -996,13 +997,15 @@ export function ClassRoutinePanel() {
             {data.periods.map((row) => <option key={row.id} value={row.id}>{row.period}</option>)}
           </select>
         </div>
-        <div>
-          <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Start Time</label>
-          <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }} />
-        </div>
-        <div>
-          <label style={{ fontSize: 12, color: "var(--text-muted)" }}>End Time</label>
-          <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-muted)", display: 'block', marginBottom: 6, fontWeight: 600 }}>Start</label>
+            <TimeSpinnerPicker value={startTime} onChange={setStartTime} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-muted)", display: 'block', marginBottom: 6, fontWeight: 600 }}>End</label>
+            <TimeSpinnerPicker value={endTime} onChange={setEndTime} />
+          </div>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Room</label>

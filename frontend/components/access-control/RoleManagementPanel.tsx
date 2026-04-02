@@ -13,10 +13,18 @@ type RoleItem = {
 
 type RoleApiResult = {
   results?: RoleItem[];
+  data?: RoleItem[];
 };
 
-function listData<T>(payload: T[] | { results?: T[] }): T[] {
-  return Array.isArray(payload) ? payload : payload.results || [];
+function listData<T>(payload: T[] | { results?: T[]; data?: T[] }): T[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  // Support standardized API wrapper: { success, message, data: [...] }.
+  if (Array.isArray(payload.data)) {
+    return payload.data;
+  }
+  return payload.results || [];
 }
 
 function boxStyle() {

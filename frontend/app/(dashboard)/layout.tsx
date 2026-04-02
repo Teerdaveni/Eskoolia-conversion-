@@ -9,7 +9,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Sidebar />
         <div>
           <Topbar />
-          <main style={{ padding: 18 }}>{children}</main>
+          <main className="dashboard-main">{children}</main>
         </div>
       </div>
     </AuthGate>

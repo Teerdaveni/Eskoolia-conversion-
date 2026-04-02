@@ -71,6 +71,23 @@ function buttonStyle(color = "var(--primary)") {
   } as const;
 }
 
+function formatCallDuration(duration: string): string {
+  if (!duration) return "-";
+  // If already in HH:MM:SS format, return as is
+  if (/^\d{1,2}:\d{2}:\d{2}$/.test(duration)) {
+    return duration;
+  }
+  // If just seconds, format to HH:MM:SS
+  if (/^\d+$/.test(duration)) {
+    const seconds = parseInt(duration, 10);
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+  return duration;
+}
+
 export function PhoneCallLogPanel() {
   const [items, setItems] = useState<PhoneCallRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -240,9 +257,18 @@ export function PhoneCallLogPanel() {
                   style={{ ...fieldStyle(), borderColor: fieldErrors.phone ? "#dc2626" : "var(--line)" }}
                 />
                 {fieldErrors.phone ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.phone}</span> : null}
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
-                <input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} style={fieldStyle()} />
-                <input value={callDuration} onChange={(e) => setCallDuration(e.target.value)} placeholder="Call Duration" style={fieldStyle()} />
+                <div>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>From Date</label>
+                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>To Date</label>
+                  <input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Call Duration (HH:MM:SS)</label>
+                  <input value={callDuration} onChange={(e) => setCallDuration(e.target.value)} placeholder="HH:MM:SS" style={fieldStyle()} />
+                </div>
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" rows={3} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
 
                 <div style={{ display: "flex", gap: 16, alignItems: "center", fontSize: 13 }}>
@@ -275,8 +301,8 @@ export function PhoneCallLogPanel() {
                     <tr>
                       <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Name</th>
                       <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Phone</th>
-                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Date</th>
-                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Follow Up Date</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>From Date</th>
+                      <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>To Date</th>
                       <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Call Duration</th>
                       <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Description</th>
                       <th style={{ padding: 8, borderBottom: "1px solid var(--line)", textAlign: "left" }}>Call Type</th>
@@ -293,7 +319,7 @@ export function PhoneCallLogPanel() {
                           <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.phone}</td>
                           <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.date || "-"}</td>
                           <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.next_follow_up_date || "-"}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.call_duration || "-"}</td>
+                          <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{formatCallDuration(row.call_duration || "")}</td>
                           <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.description || "-"}</td>
                           <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.call_type === "I" ? "Incoming" : "Outgoing"}</td>
                           <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>

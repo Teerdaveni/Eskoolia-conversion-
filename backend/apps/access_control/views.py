@@ -1,11 +1,12 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import Http404
 from django.db import IntegrityError
 from django.db.models import Q, Sum
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, NotFound, PermissionDenied as DRFPermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from apps.core.models import Class, Section
@@ -18,6 +19,69 @@ from .permission_classes import CanManageRoles, CanManageUserRoles, CanViewPermi
 from .serializers import PermissionSerializer, RoleSerializer, UserRoleSerializer
 
 User = get_user_model()
+
+
+class StandardizedAccessControlResponseMixin:
+    """Provide consistent success/error payloads and status mapping for access-control APIs."""
+
+    def success_response(self, message, data=None, status_code=status.HTTP_200_OK):
+        return Response(
+            {
+                "success": True,
+                "message": message,
+                "data": data if data is not None else {},
+            },
+            status=status_code,
+        )
+
+    def error_response(self, message, status_code, errors=None):
+        return Response(
+            {
+                "success": False,
+                "message": message,
+                "errors": errors if errors is not None else {},
+            },
+            status=status_code,
+        )
+
+    def handle_exception(self, exc):
+        # 401: missing/invalid/expired authentication credentials.
+        if isinstance(exc, (NotAuthenticated, AuthenticationFailed)):
+            return self.error_response(
+                "Authentication credentials were not provided or invalid",
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # 403: authenticated user without required authorization.
+        if isinstance(exc, DRFPermissionDenied):
+            return self.error_response(
+                "You do not have permission to perform this action",
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        # 404: role/permission resources not found.
+        if isinstance(exc, NotFound):
+            return self.error_response(str(exc.detail), status.HTTP_404_NOT_FOUND)
+
+        # 400: serializer and business-rule validation failures.
+        if isinstance(exc, ValidationError):
+            errors = exc.detail if isinstance(exc.detail, dict) else {}
+            message = "Validation failed"
+            if isinstance(exc.detail, dict) and exc.detail:
+                first_value = next(iter(exc.detail.values()))
+                if isinstance(first_value, list) and first_value:
+                    message = str(first_value[0])
+                elif isinstance(first_value, str):
+                    message = first_value
+            elif isinstance(exc.detail, list) and exc.detail:
+                message = str(exc.detail[0])
+            elif isinstance(exc.detail, str):
+                message = exc.detail
+
+            return self.error_response(message, status.HTTP_400_BAD_REQUEST, errors=errors)
+
+        # 500: fallback for unexpected errors in critical paths.
+        return self.error_response("Internal server error", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 def _coerce_bool(value):
@@ -48,13 +112,29 @@ def _is_parent_role(role: Role) -> bool:
     return "parent" in name
 
 
-class PermissionViewSet(viewsets.ReadOnlyModelViewSet):
+class PermissionViewSet(StandardizedAccessControlResponseMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Permission.objects.all()
     serializer_class = PermissionSerializer
     permission_classes = [permissions.IsAuthenticated, CanViewPermissions]
 
+    def get_object(self):
+        try:
+            return super().get_object()
+        except (Http404, ValueError, TypeError, DjangoValidationError):
+            raise NotFound("Permission not found")
 
-class RoleViewSet(viewsets.ModelViewSet):
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return self.success_response("Permissions fetched successfully", serializer.data)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return self.success_response("Permission fetched successfully", serializer.data)
+
+
+class RoleViewSet(StandardizedAccessControlResponseMixin, viewsets.ModelViewSet):
     serializer_class = RoleSerializer
     permission_classes = [permissions.IsAuthenticated, CanManageRoles]
 
@@ -70,8 +150,8 @@ class RoleViewSet(viewsets.ModelViewSet):
     def get_object(self):
         try:
             return super().get_object()
-        except (ValueError, TypeError, DjangoValidationError):
-            raise NotFound("Role not found.")
+        except (Http404, ValueError, TypeError, DjangoValidationError):
+            raise NotFound("Role not found")
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -85,6 +165,54 @@ class RoleViewSet(viewsets.ModelViewSet):
             serializer.save()
         except IntegrityError:
             raise ValidationError({"name": "Role with this name already exists."})
+
+    def perform_destroy(self, instance):
+        # 400 business rule: system roles are not deletable.
+        if instance.is_system:
+            raise ValidationError({"role": "Cannot delete system role."})
+
+        # 400 business rule: roles assigned to users are not deletable.
+        if instance.user_roles.exists():
+            raise ValidationError({"role": "Cannot delete role assigned to users."})
+
+        instance.delete()
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return self.success_response("Roles fetched successfully", serializer.data)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return self.success_response("Role fetched successfully", serializer.data)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return self.success_response(
+            "Role created successfully",
+            serializer.data,
+            status_code=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return self.success_response("Role updated successfully", serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return self.success_response("Role deleted successfully", data={})
 
     @staticmethod
     def _module_label(module_code: str) -> str:
@@ -120,15 +248,16 @@ class RoleViewSet(viewsets.ModelViewSet):
         selected_ids = set()
         if role_id:
             role = self.get_queryset().filter(id=role_id).first()
-            if role:
-                selected_ids = set(role.permissions.values_list("id", flat=True))
+            if not role:
+                raise NotFound("Role not found")
+            selected_ids = set(role.permissions.values_list("id", flat=True))
         rows = self._build_permission_tree_rows(selected_ids)
-        return Response(
+        return self.success_response(
+            "Permission tree fetched successfully",
             {
                 "role": {"id": role.id, "name": role.name} if role else None,
                 "modules": rows,
             },
-            status=status.HTTP_200_OK,
         )
 
     @action(detail=True, methods=["get"], url_path="permission-tree")
@@ -136,12 +265,12 @@ class RoleViewSet(viewsets.ModelViewSet):
         role = self.get_object()
         selected_ids = set(role.permissions.values_list("id", flat=True))
         rows = self._build_permission_tree_rows(selected_ids)
-        return Response(
+        return self.success_response(
+            "Permission tree fetched successfully",
             {
                 "role": {"id": role.id, "name": role.name},
                 "modules": rows,
             },
-            status=status.HTTP_200_OK,
         )
 
     @action(detail=True, methods=["post"], url_path="assign-permissions")
@@ -149,36 +278,29 @@ class RoleViewSet(viewsets.ModelViewSet):
         role = self.get_object()
         permission_ids = request.data.get("permission_ids", [])
         if not isinstance(permission_ids, list):
-            return Response({"detail": "permission_ids must be a list."}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationError({"permission_ids": "permission_ids must be a list."})
 
         normalized_ids = []
         for raw_id in permission_ids:
             try:
                 normalized_ids.append(int(raw_id))
             except (TypeError, ValueError):
-                return Response({"detail": "permission_ids must contain integer IDs."}, status=status.HTTP_400_BAD_REQUEST)
+                raise ValidationError({"permission_ids": "permission_ids must contain integer IDs."})
 
         unique_ids = list(dict.fromkeys(normalized_ids))
         permissions_qs = Permission.objects.filter(id__in=unique_ids)
         found_ids = set(permissions_qs.values_list("id", flat=True))
         invalid_ids = [pid for pid in unique_ids if pid not in found_ids]
         if invalid_ids:
-            return Response(
-                {
-                    "detail": "Some permissions are invalid.",
-                    "invalid_permission_ids": invalid_ids,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise NotFound("Permission not found")
 
         role.permissions.set(permissions_qs)
-        return Response(
+        return self.success_response(
+            "Permissions assigned successfully",
             {
-                "detail": "Permissions assigned successfully.",
                 "role_id": role.id,
                 "permission_ids": list(permissions_qs.values_list("id", flat=True)),
             },
-            status=status.HTTP_200_OK,
         )
 
 

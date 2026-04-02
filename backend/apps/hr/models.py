@@ -103,6 +103,7 @@ class Staff(models.Model):
     bank_account_no = models.CharField(max_length=120, blank=True)
     bank_name = models.CharField(max_length=120, blank=True)
     bank_branch = models.CharField(max_length=120, blank=True)
+    bank_mobile_no = models.CharField(max_length=32, blank=True)
     facebook_url = models.URLField(max_length=400, blank=True)
     twitter_url = models.URLField(max_length=400, blank=True)
     linkedin_url = models.URLField(max_length=400, blank=True)
@@ -118,6 +119,10 @@ class Staff(models.Model):
     location = models.CharField(max_length=255, blank=True)
     resume = models.CharField(max_length=300, blank=True)
     joining_letter = models.CharField(max_length=300, blank=True)
+    tenth_certificate = models.CharField(max_length=300, blank=True)
+    eleventh_certificate = models.CharField(max_length=300, blank=True)
+    aadhar_card = models.CharField(max_length=300, blank=True)
+    driving_license_doc = models.CharField(max_length=300, blank=True)
     other_document = models.CharField(max_length=300, blank=True)
     join_date = models.DateField()
     basic_salary = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
@@ -165,6 +170,27 @@ class LeaveDefine(models.Model):
         related_name="leave_defines",
     )
     staff = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True, related_name="leave_defines")
+    student = models.ForeignKey(
+        "students.Student",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="leave_defines",
+    )
+    school_class = models.ForeignKey(
+        "core.Class",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="leave_defines",
+    )
+    section = models.ForeignKey(
+        "core.Section",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="leave_defines",
+    )
     leave_type = models.ForeignKey(LeaveType, on_delete=models.CASCADE, related_name="leave_defines")
     days = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -176,6 +202,9 @@ class LeaveDefine(models.Model):
         indexes = [
             models.Index(fields=["school", "role"], name="idx_hr_ld_sch_role"),
             models.Index(fields=["school", "staff"], name="idx_hr_ld_sch_staff"),
+            models.Index(fields=["school", "student"], name="idx_hr_ld_sch_student"),
+            models.Index(fields=["school", "school_class"], name="idx_hr_ld_sch_class"),
+            models.Index(fields=["school", "section"], name="idx_hr_ld_sch_section"),
         ]
 
 

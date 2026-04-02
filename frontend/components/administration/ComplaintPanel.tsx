@@ -264,6 +264,7 @@ export function ComplaintPanel() {
             <div className="white-box" style={boxStyle()}>
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Complaint" : "Add Complaint"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
+                <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Complaint By *</label>
                 <input
                   value={complaintBy}
                   onChange={(e) => {
@@ -274,6 +275,7 @@ export function ComplaintPanel() {
                   style={{ ...fieldStyle(), borderColor: fieldErrors.complaintBy ? "#dc2626" : "var(--line)" }}
                 />
                 {fieldErrors.complaintBy ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.complaintBy}</span> : null}
+                <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Complaint Type *</label>
                 <select
                   aria-label="Complaint Type"
                   value={complaintType}
@@ -291,6 +293,7 @@ export function ComplaintPanel() {
                   ))}
                 </select>
                 {fieldErrors.complaintType ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.complaintType}</span> : null}
+                <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Complaint Source *</label>
                 <select
                   aria-label="Complaint Source"
                   value={complaintSource}
@@ -308,6 +311,7 @@ export function ComplaintPanel() {
                   ))}
                 </select>
                 {fieldErrors.complaintSource ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.complaintSource}</span> : null}
+                <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Phone</label>
                 <input
                   value={phone}
                   onChange={(e) => {
@@ -318,11 +322,16 @@ export function ComplaintPanel() {
                   style={{ ...fieldStyle(), borderColor: fieldErrors.phone ? "#dc2626" : "var(--line)" }}
                 />
                 {fieldErrors.phone ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.phone}</span> : null}
+                <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Date</label>
                 <input aria-label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
+                <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Action Taken</label>
                 <input value={actionTaken} onChange={(e) => setActionTaken(e.target.value)} placeholder="Action Taken" style={fieldStyle()} />
+                <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Assigned</label>
                 <input value={assigned} onChange={(e) => setAssigned(e.target.value)} placeholder="Assigned" style={fieldStyle()} />
+                <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Description</label>
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" rows={3} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
-                <input aria-label="Complaint Attachment" type="file" onChange={(e) => setFileUpload(e.target.files?.[0] || null)} style={{ ...fieldStyle(), padding: 6 }} />
+                <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Attachment</label>
+                <input aria-label="Complaint Attachment" type="file" accept="*/*" onChange={(e) => setFileUpload(e.target.files?.[0] || null)} style={{ ...fieldStyle(), padding: 6 }} />
                 {editingId && fileUrl ? <a href={fileUrl} target="_blank" rel="noreferrer" style={{ color: "var(--primary)", fontSize: 12 }}>View existing file</a> : null}
 
                 <div style={{ display: "flex", gap: 8 }}>

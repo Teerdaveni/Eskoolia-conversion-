@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
+import { TimeSpinnerPicker } from "@/components/common/TimeSpinnerPicker";
 
 type SchoolClass = { id: number; class_name?: string; name?: string };
 type Section = { id: number; section_name?: string; name?: string; class_id?: number };
@@ -282,10 +283,16 @@ export default function ExamSchedulePanel() {
                         </select>
                       </td>
                       <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                        <input type="time" value={row.start_time} onChange={(e) => updateRow(index, { start_time: e.target.value })} style={fieldStyle()} />
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <label style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600 }}>Start</label>
+                          <TimeSpinnerPicker value={row.start_time} onChange={(v) => updateRow(index, { start_time: v })} />
+                        </div>
                       </td>
                       <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                        <input type="time" value={row.end_time} onChange={(e) => updateRow(index, { end_time: e.target.value })} style={fieldStyle()} />
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <label style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600 }}>End</label>
+                          <TimeSpinnerPicker value={row.end_time} onChange={(v) => updateRow(index, { end_time: v })} />
+                        </div>
                       </td>
                       <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
                         <select value={row.teacher_id ?? 0} onChange={(e) => updateRow(index, { teacher_id: Number(e.target.value) || null })} style={fieldStyle()}>

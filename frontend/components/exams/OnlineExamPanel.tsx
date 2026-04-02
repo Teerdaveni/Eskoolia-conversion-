@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
+import { TimeSpinnerPicker } from "@/components/common/TimeSpinnerPicker";
 
 type SchoolClass = { id: number; class_name?: string; name?: string };
 type Section = { id: number; section_name?: string; name?: string; class_id?: number };
@@ -286,8 +287,16 @@ export default function OnlineExamPanel() {
                 ))}
               </select>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldStyle()} />
-              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} style={fieldStyle()} />
-              <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={fieldStyle()} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, gridColumn: 'span 2' }}>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 6, fontWeight: 600 }}>Start</label>
+                  <TimeSpinnerPicker value={startTime} onChange={setStartTime} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 6, fontWeight: 600 }}>End</label>
+                  <TimeSpinnerPicker value={endTime} onChange={setEndTime} />
+                </div>
+              </div>
               <input type="number" min="0" step="0.01" value={percentage} onChange={(e) => setPercentage(e.target.value)} placeholder="Percentage" style={fieldStyle()} />
             </div>
             <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8 }}>

@@ -3,17 +3,18 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: white;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9));
   overflow: hidden;
 }
 
 .header {
   padding: 16px;
-  border-bottom: 1px solid #e8eaed;
+  border-bottom: 1px solid #e2e8f0;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #f8f9fa;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(8px);
 }
 
 .headerInfo {
@@ -23,14 +24,14 @@
 .headerTitle {
   margin: 0 0 4px 0;
   font-size: 18px;
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .headerSubtitle {
   margin: 0;
   font-size: 12px;
-  color: #999;
+  color: #64748b;
 }
 
 .wsStatusRow {
@@ -68,7 +69,7 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #f0f2f5;
+  background: #e2e8f0;
   border: none;
   cursor: pointer;
   font-size: 18px;
@@ -79,7 +80,7 @@
 }
 
 .closeBtn:hover {
-  background: #e8eaed;
+  background: #cbd5e1;
 }
 
 .blockBtn {
@@ -121,7 +122,7 @@
   padding: 16px;
   display: flex;
   flex-direction: column;
-  background: #fafafa;
+  background: linear-gradient(180deg, #f8fbff 0%, #f1f5ff 100%);
 }
 
 .messages {
@@ -152,23 +153,23 @@
 .forwardedMessage {
   margin-left: 12px;
   padding: 8px 12px;
-  background: #f0f2f5;
-  border-left: 3px solid #ddd;
-  border-radius: 4px;
+  background: #eef4ff;
+  border-left: 3px solid #93c5fd;
+  border-radius: 10px;
   font-size: 12px;
 }
 
 .repliedLabel,
 .forwardedLabel {
   font-weight: 600;
-  color: #666;
+  color: #475569;
   font-size: 11px;
   margin-bottom: 4px;
 }
 
 .repliedContent,
 .forwardedContent {
-  color: #999;
+  color: #64748b;
   font-style: italic;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -184,18 +185,19 @@
   max-width: min(78%, 760px);
   max-width: 100%;
   padding: 12px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.98);
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
 }
 
 .ownMessage {
-  background: #dcf8c6;
+  background: linear-gradient(135deg, #dcfce7, #dbeafe);
   border-top-right-radius: 4px;
 }
 
 .otherMessage {
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.98);
   border-top-left-radius: 4px;
 }
 
@@ -207,13 +209,13 @@
 }
 
 .messageSender strong {
-  color: #333;
+  color: #0f172a;
   font-size: 14px;
 }
 
 .messageTime {
   font-size: 11px;
-  color: #999;
+  color: #64748b;
   margin-left: auto;
   white-space: nowrap;
 }
@@ -225,7 +227,7 @@
 
 .messageContent p {
   margin: 0;
-  color: #333;
+  color: #1e293b;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -236,16 +238,16 @@
   display: inline-block;
   margin-top: 8px;
   padding: 6px 12px;
-  background: #e7f1ff;
-  color: #007bff;
+  background: #eaf2ff;
+  color: #1d4ed8;
   text-decoration: none;
-  border-radius: 4px;
+  border-radius: 999px;
   font-size: 12px;
   transition: background 0.3s;
 }
 
 .fileAttachment:hover {
-  background: #cfe2ff;
+  background: #dbeafe;
 }
 
 .voicePlayer {
@@ -263,24 +265,24 @@
 
 .actionBtn {
   padding: 4px 8px;
-  background: #f0f2f5;
+  background: #e2e8f0;
   border: none;
-  border-radius: 4px;
+  border-radius: 999px;
   font-size: 11px;
   cursor: pointer;
   transition: background 0.3s;
-  color: #666;
+  color: #475569;
 }
 
 .actionBtn:hover {
-  background: #e8eaed;
-  color: #333;
+  background: #cbd5e1;
+  color: #0f172a;
 }
 
 .contextPreview {
   padding: 12px 16px;
-  border-top: 2px solid #e8eaed;
-  background: #f0f2f5;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -290,22 +292,22 @@
   display: flex;
   gap: 12px;
   padding: 8px;
-  background: white;
-  border-left: 3px solid #007bff;
-  border-radius: 4px;
+  background: #fff;
+  border-left: 3px solid #1d4ed8;
+  border-radius: 10px;
   align-items: center;
   font-size: 12px;
 }
 
 .contextLabel {
   font-weight: 600;
-  color: #007bff;
+  color: #1d4ed8;
   min-width: 80px;
 }
 
 .contextMessage {
   flex: 1;
-  color: #666;
+  color: #475569;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -316,22 +318,22 @@
   border: none;
   cursor: pointer;
   font-size: 14px;
-  color: #999;
+  color: #64748b;
   padding: 0 4px;
   min-width: auto;
   flex-shrink: 0;
 }
 
 .contextClear:hover {
-  color: #333;
+  color: #0f172a;
 }
 
 .inputArea {
   display: flex;
   gap: 8px;
   padding: 16px;
-  border-top: 1px solid #e8eaed;
-  background: white;
+  border-top: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.92);
   position: relative;
   align-items: center;
 }
@@ -343,9 +345,9 @@
 .composerBtn {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: 12px;
   border: none;
-  background: #f0f2f5;
+  background: #e2e8f0;
   cursor: pointer;
   font-size: 18px;
   display: inline-flex;
@@ -355,7 +357,7 @@
 }
 
 .composerBtn:hover {
-  background: #e3e7ec;
+  background: #cbd5e1;
 }
 
 .recordingBtn {
@@ -375,8 +377,8 @@
   left: 16px;
   width: 230px;
   padding: 10px;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
   background: #fff;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   display: grid;
@@ -387,20 +389,20 @@
 
 .emojiBtn {
   border: none;
-  background: #f8fafc;
-  border-radius: 6px;
+  background: #f1f5f9;
+  border-radius: 8px;
   padding: 6px;
   cursor: pointer;
   font-size: 18px;
 }
 
 .emojiBtn:hover {
-  background: #e2e8f0;
+  background: #dbeafe;
 }
 
 .filePreview {
-  border-top: 1px solid #e8eaed;
-  background: #eff6ff;
+  border-top: 1px solid #e2e8f0;
+  background: #f1f5ff;
   padding: 8px 16px;
   display: flex;
   align-items: center;
@@ -425,8 +427,8 @@
 .messageInput {
   flex: 1;
   padding: 12px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
   font-size: 14px;
   outline: none;
   resize: none;
@@ -434,13 +436,13 @@
 }
 
 .messageInput:focus {
-  border-color: #007bff;
-  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
 .messageInput:disabled {
-  background: #f0f2f5;
-  color: #999;
+  background: #e2e8f0;
+  color: #64748b;
 }
 
 .sendBtn {
@@ -448,8 +450,8 @@
   height: 40px;
   padding: 0;
   border: none;
-  border-radius: 8px;
-  background: #007bff;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0f766e, #1d4ed8);
   color: white;
   cursor: pointer;
   font-size: 18px;
@@ -460,11 +462,11 @@
 }
 
 .sendBtn:hover:not(:disabled) {
-  background: #0056b3;
+  filter: brightness(0.95);
 }
 
 .sendBtn:disabled {
-  background: #ccc;
+  background: #cbd5e1;
   cursor: not-allowed;
 }
 
@@ -476,7 +478,7 @@
   justify-content: center;
   flex-direction: column;
   height: 100%;
-  color: #999;
+  color: #64748b;
   gap: 16px;
 }
 
@@ -492,15 +494,15 @@
   justify-content: center;
   flex-direction: column;
   height: 100%;
-  color: #666;
+  color: #475569;
   gap: 16px;
 }
 
 .spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid #f0f2f5;
-  border-top-color: #007bff;
+  border: 3px solid #e2e8f0;
+  border-top-color: #1d4ed8;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -513,17 +515,17 @@
 
 .retryBtn {
   padding: 8px 16px;
-  background: #007bff;
+  background: linear-gradient(135deg, #0f766e, #1d4ed8);
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 999px;
   cursor: pointer;
   font-size: 14px;
-  transition: background 0.3s;
+  transition: filter 0.3s;
 }
 
 .retryBtn:hover {
-  background: #0056b3;
+  filter: brightness(0.95);
 }
 
 /* Scrollbar styling */
@@ -536,12 +538,12 @@
 }
 
 .messagesContainer::-webkit-scrollbar-thumb {
-  background: #ccc;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
 .messagesContainer::-webkit-scrollbar-thumb:hover {
-  background: #999;
+  background: #94a3b8;
 }
 
 @media (max-width: 576px) {

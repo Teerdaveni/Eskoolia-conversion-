@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { apiRequestWithRefresh } from "@/lib/api-auth";
+import { TimeSpinnerPicker } from "@/components/common/TimeSpinnerPicker";
 
 type ClassPeriod = {
   id: number;
@@ -166,8 +167,16 @@ export default function ClassPeriodsPanel() {
             <div style={{ fontWeight: 600, marginBottom: 10 }}>{editingId ? "Edit Class Period" : "Add Class Period"}</div>
             <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr)) auto auto", gap: 8, alignItems: "end" }}>
               <input value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="Period name (e.g. Period 1)" style={fieldStyle()} />
-              <input value={startTime} onChange={(e) => setStartTime(e.target.value)} type="time" style={fieldStyle()} />
-              <input value={endTime} onChange={(e) => setEndTime(e.target.value)} type="time" style={fieldStyle()} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, gridColumn: 'span 2' }}>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 6, fontWeight: 600 }}>Start</label>
+                  <TimeSpinnerPicker value={startTime} onChange={setStartTime} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 6, fontWeight: 600 }}>End</label>
+                  <TimeSpinnerPicker value={endTime} onChange={setEndTime} />
+                </div>
+              </div>
               <select value={periodType} onChange={(e) => setPeriodType(e.target.value as "class" | "exam")} style={fieldStyle()}>
                 <option value="class">Class</option>
                 <option value="exam">Exam</option>

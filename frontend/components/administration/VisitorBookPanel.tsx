@@ -2,8 +2,20 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiRequestWithRefresh } from "@/lib/api-auth";
+import { TimeSpinnerPicker } from "@/components/common/TimeSpinnerPicker";
 
 type ApiList<T> = T[] | { results?: T[] };
+
+type AdminSetupRow = {
+  id: number;
+  type: "1" | "2" | "3" | "4";
+  name: string;
+};
+
+type SelectOption = {
+  value: string;
+  label: string;
+};
 
 type VisitorRow = {
   id: number;
@@ -101,6 +113,7 @@ function buttonStyle(color = "var(--primary)") {
 
 export function VisitorBookPanel() {
   const [items, setItems] = useState<VisitorRow[]>([]);
+  const [purposeOptions, setPurposeOptions] = useState<SelectOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -125,8 +138,14 @@ export function VisitorBookPanel() {
     try {
       setLoading(true);
       setError("");
-      const data = await apiGet<ApiList<VisitorRow>>("/api/v1/admissions/visitors/");
-      setItems(listData(data));
+      const [visitorData, setupData] = await Promise.all([
+        apiGet<ApiList<VisitorRow>>("/api/v1/admissions/visitors/"),
+        apiGet<ApiList<AdminSetupRow>>("/api/v1/admissions/admin-setups/"),
+      ]);
+
+      setItems(listData(visitorData));
+      const setups = listData(setupData);
+      setPurposeOptions(setups.filter((entry) => entry.type === "1").map((entry) => ({ value: String(entry.id), label: entry.name })));
     } catch (error: unknown) {
       setError(getErrorMessage(error, "Unable to load visitor book records."));
     } finally {
@@ -154,8 +173,9 @@ export function VisitorBookPanel() {
   };
 
   const editRow = (row: VisitorRow) => {
+    const matchedPurpose = purposeOptions.find((option) => option.value === row.purpose || option.label === row.purpose);
     setEditingId(row.id);
-    setPurpose(row.purpose || "");
+    setPurpose(matchedPurpose?.value || row.purpose || "");
     setName(row.name || "");
     setPhone(row.phone || "");
     setNoOfPerson(String(row.no_of_person || 1));
@@ -279,15 +299,22 @@ export function VisitorBookPanel() {
             <div className="white-box" style={boxStyle()}>
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Visitor" : "Add Visitor"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
-                <input
+                <select
+                  aria-label="Purpose"
                   value={purpose}
                   onChange={(e) => {
                     setPurpose(e.target.value);
                     if (fieldErrors.purpose) setFieldErrors((prev) => ({ ...prev, purpose: "" }));
                   }}
-                  placeholder="Purpose *"
                   style={{ ...fieldStyle(), borderColor: fieldErrors.purpose ? "#dc2626" : "var(--line)" }}
-                />
+                >
+                  <option value="">Select Purpose *</option>
+                  {purposeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
                 {fieldErrors.purpose ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.purpose}</span> : null}
                 <input
                   value={name}
@@ -320,26 +347,24 @@ export function VisitorBookPanel() {
                   style={{ ...fieldStyle(), borderColor: fieldErrors.date ? "#dc2626" : "var(--line)" }}
                 />
                 {fieldErrors.date ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.date}</span> : null}
-                <input
-                  value={inTime}
-                  onChange={(e) => {
-                    setInTime(e.target.value);
-                    if (fieldErrors.inTime) setFieldErrors((prev) => ({ ...prev, inTime: "" }));
-                  }}
-                  placeholder="In Time *"
-                  style={{ ...fieldStyle(), borderColor: fieldErrors.inTime ? "#dc2626" : "var(--line)" }}
-                />
-                {fieldErrors.inTime ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.inTime}</span> : null}
-                <input
-                  value={outTime}
-                  onChange={(e) => {
-                    setOutTime(e.target.value);
-                    if (fieldErrors.outTime) setFieldErrors((prev) => ({ ...prev, outTime: "" }));
-                  }}
-                  placeholder="Out Time *"
-                  style={{ ...fieldStyle(), borderColor: fieldErrors.outTime ? "#dc2626" : "var(--line)" }}
-                />
-                {fieldErrors.outTime ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.outTime}</span> : null}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6, display: "block", fontWeight: 600 }}>In Time</label>
+                    <TimeSpinnerPicker value={inTime} onChange={(v) => {
+                      setInTime(v);
+                      if (fieldErrors.inTime) setFieldErrors((prev) => ({ ...prev, inTime: "" }));
+                    }} />
+                    {fieldErrors.inTime ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.inTime}</span> : null}
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6, display: "block", fontWeight: 600 }}>Out Time</label>
+                    <TimeSpinnerPicker value={outTime} onChange={(v) => {
+                      setOutTime(v);
+                      if (fieldErrors.outTime) setFieldErrors((prev) => ({ ...prev, outTime: "" }));
+                    }} />
+                    {fieldErrors.outTime ? <span style={{ fontSize: 12, color: "#dc2626" }}>{fieldErrors.outTime}</span> : null}
+                  </div>
+                </div>
                 <input type="file" onChange={(e) => setFileUpload(e.target.files?.[0] || null)} style={{ ...fieldStyle(), padding: 6 }} />
                 {editingId && fileUrl ? (
                   <a href={fileUrl} target="_blank" rel="noreferrer" style={{ color: "var(--primary)", fontSize: 12 }}>
