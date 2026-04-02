@@ -209,9 +209,14 @@ type LeaveRequest = {
   to_date: string;
   created_at: string;
   reason: string;
-  attachment: string;
+  attachment: string; // This line is unchanged, but included for context
   approval_note: string;
   status: "pending" | "approved" | "rejected";
+};
+type MePayload = {
+  is_superuser: boolean;
+  is_school_admin: boolean;
+  permission_codes: string[];
 };
 
 type StaffAttendance = {
@@ -2692,6 +2697,14 @@ export function HrLeaveDefinePanel() {
   const [staffLoading, setStaffLoading] = useState(false);
   const [studentLoading, setStudentLoading] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [staffFilter, setStaffFilter] = useState("all");
+  const [leaveTypeFilter, setLeaveTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "role" | "staff" | "student">("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  const formRef = useRef<HTMLDivElement | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
     role?: string;
     staff?: string;
@@ -2713,6 +2726,59 @@ export function HrLeaveDefinePanel() {
 
   const selectedRole = roles.find((item) => String(item.id) === roleId);
   const isStudentRole = !!selectedRole && selectedRole.name.trim().toLowerCase() === "student";
+  const filteredRows = useMemo(() => {
+    let items = [...rows];
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.trim().toLowerCase();
+      items = items.filter((item) => {
+        const scopeText = [item.role_name, item.staff_name, item.student_name, item.class_name, item.section_name, item.leave_type_name]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return scopeText.includes(query) || String(item.days).includes(query);
+      });
+    }
+
+    if (roleFilter !== "all") {
+      items = items.filter((item) => String(item.role || "") === roleFilter || item.role_name === roleFilter);
+    }
+
+    if (staffFilter !== "all") {
+      items = items.filter((item) => String(item.staff || "") === staffFilter || item.staff_name === staffFilter);
+    }
+
+    if (leaveTypeFilter !== "all") {
+      items = items.filter((item) => String(item.leave_type || "") === leaveTypeFilter || item.leave_type_name === leaveTypeFilter);
+    }
+
+    if (statusFilter === "role") {
+      items = items.filter((item) => !!item.role && !item.staff && !item.student);
+    } else if (statusFilter === "staff") {
+      items = items.filter((item) => !!item.staff);
+    } else if (statusFilter === "student") {
+      items = items.filter((item) => !!item.student || !!item.school_class || !!item.section);
+    }
+
+    items.sort((a, b) => {
+      const priority = (row: LeaveDefine) => (row.staff ? 0 : row.student ? 1 : 2);
+      const pDiff = priority(a) - priority(b);
+      if (pDiff !== 0) return pDiff;
+      const typeDiff = (a.leave_type_name || "").localeCompare(b.leave_type_name || "");
+      if (typeDiff !== 0) return typeDiff;
+      return Number(a.days) - Number(b.days);
+    });
+
+    return items;
+  }, [rows, searchQuery, roleFilter, staffFilter, leaveTypeFilter, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
+  const paginatedRows = filteredRows.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, roleFilter, staffFilter, leaveTypeFilter, statusFilter]);
+
   const filteredSections = useMemo(() => {
     if (!classId) return [];
     return sectionRows.filter((item) => String(item.school_class || "") === classId);
@@ -2768,8 +2834,8 @@ export function HrLeaveDefinePanel() {
     const parsedDays = Number(days);
 
     if (!roleId && !staffId) {
-      nextErrors.role = "Select role or staff.";
-      nextErrors.staff = "Select role or staff.";
+      nextErrors.role = "Select either role or staff.";
+      nextErrors.staff = "Select either role or staff.";
     }
     if (roleId && staffId && !isStudentRole) {
       nextErrors.role = "Choose either role or staff, not both.";
@@ -2827,6 +2893,21 @@ export function HrLeaveDefinePanel() {
     if (lowered.includes("leave type")) return "leave_type";
     if (lowered.includes("days")) return "days";
     return null;
+  };
+
+  const resetForm = () => {
+    setEditingId(null);
+    setRoleId("");
+    setStaffId("");
+    setClassId("");
+    setSectionId("");
+    setStudentId("");
+    setLeaveTypeId("");
+    setDays("0");
+    setScopeType("all");
+    setFieldErrors({});
+    setError("");
+    setToast("");
   };
 
   const loadStaffByRole = async (selectedRoleId: string) => {
@@ -2987,19 +3068,12 @@ export function HrLeaveDefinePanel() {
       };
       if (editingId) {
         await apiPatch(`/api/v1/hr/leave-defines/${editingId}/`, payload);
-        setToast("Leave define updated successfully.");
+        setToast("Leave policy updated successfully.");
       } else {
         await apiPost("/api/v1/hr/leave-defines/", payload);
-        setToast("Leave defined successfully.");
+        setToast("Leave policy created successfully.");
       }
-      setEditingId(null);
-      setRoleId("");
-      setStaffId("");
-      setClassId("");
-      setSectionId("");
-      setStudentId("");
-      setLeaveTypeId("");
-      setDays("0");
+      resetForm();
       await load();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Validation failed";
@@ -3015,17 +3089,17 @@ export function HrLeaveDefinePanel() {
 
   return (
     <div className="legacy-panel">
-      {breadcrumb("Leave Define")}
+      {breadcrumb("Define Leave Policy")}
       <section className="admin-visitor-area up_st_admin_visitor"><div className="container-fluid p-0">
-        <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
-          <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Leave Define" : "Add Leave Define"}</h3>
+        <div ref={formRef} className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
+          <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Leave Policy" : "Add Leave Policy"}</h3>
           <form onSubmit={submit} style={{ display: "grid", gap: 16 }}>
             {/* Scope Selection */}
             <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
               <h4 style={{ margin: 0, fontSize: 14 }}>1. Scope Selection</h4>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div style={{ display: "grid", gap: 4 }}>
-                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Role (optional)</label>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Role *</label>
                   <select
                     id="leave-define-role"
                     value={roleId}
@@ -3054,7 +3128,7 @@ export function HrLeaveDefinePanel() {
                     }}
                     style={{ ...fieldStyle(), borderColor: fieldErrors.role ? "#dc2626" : "var(--line)" }}
                   >
-                    <option value="">Role (optional)</option>
+                    <option value="">Select Role</option>
                     {roles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </select>
                   {fieldErrors.role ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.role}</span> : null}
@@ -3076,7 +3150,7 @@ export function HrLeaveDefinePanel() {
                   </div>
                 ) : (
                   <div style={{ display: "grid", gap: 4 }}>
-                    <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Staff (optional)</label>
+                    <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Staff *</label>
                     <select
                       id="leave-define-staff"
                       value={staffId}
@@ -3084,7 +3158,7 @@ export function HrLeaveDefinePanel() {
                       style={{ ...fieldStyle(), borderColor: fieldErrors.staff ? "#dc2626" : "var(--line)" }}
                       disabled={staffLoading || isStudentRole}
                     >
-                      <option value="">{staffLoading ? "Loading staff..." : "Staff (optional)"}</option>
+                      <option value="">{staffLoading ? "Loading staff..." : "Select Staff"}</option>
                       {staffRows.map((item) => <option key={item.id} value={item.id}>{item.first_name} {item.last_name} ({item.staff_no})</option>)}
                     </select>
                     {fieldErrors.staff ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.staff}</span> : null}
@@ -3094,9 +3168,54 @@ export function HrLeaveDefinePanel() {
             </div>
 
             {/* Filters */}
+            <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
+              <h4 style={{ margin: 0, fontSize: 14 }}>2. Search and Filters</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Search</label>
+                  <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search by role, staff, leave type" style={fieldStyle()} />
+                </div>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Role Filter</label>
+                  <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} style={fieldStyle()}>
+                    <option value="all">All Roles</option>
+                    {roles.map((item) => <option key={item.id} value={String(item.id)}>{item.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Staff Filter</label>
+                  <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} style={fieldStyle()}>
+                    <option value="all">All Staff</option>
+                    {staffRows.map((item) => <option key={item.id} value={String(item.id)}>{item.first_name} {item.last_name} ({item.staff_no})</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Leave Type Filter</label>
+                  <select value={leaveTypeFilter} onChange={(e) => setLeaveTypeFilter(e.target.value)} style={fieldStyle()}>
+                    <option value="all">All Leave Types</option>
+                    {leaveTypes.map((item) => <option key={item.id} value={String(item.id)}>{item.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Scope Filter</label>
+                  <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "all" | "role" | "staff" | "student")} style={fieldStyle()}>
+                    <option value="all">All Records</option>
+                    <option value="role">Role Based</option>
+                    <option value="staff">Staff Specific</option>
+                    <option value="student">Student Based</option>
+                  </select>
+                </div>
+                <div style={{ display: "flex", alignItems: "end" }}>
+                  <button type="button" style={buttonStyle("#6b7280")} onClick={() => { setSearchQuery(""); setRoleFilter("all"); setStaffFilter("all"); setLeaveTypeFilter("all"); setStatusFilter("all"); setCurrentPage(1); }}>
+                    Clear Filters
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {isStudentRole ? (
               <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
-                <h4 style={{ margin: 0, fontSize: 14 }}>2. Filters</h4>
+                <h4 style={{ margin: 0, fontSize: 14 }}>3. Student Scope Details</h4>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   {scopeType !== "all" ? (
                     <>
@@ -3169,19 +3288,19 @@ export function HrLeaveDefinePanel() {
 
             {/* Leave Details */}
             <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
-              <h4 style={{ margin: 0, fontSize: 14 }}>3. Leave Details</h4>
+              <h4 style={{ margin: 0, fontSize: 14 }}>4. Leave Allocation Details</h4>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div style={{ display: "grid", gap: 4 }}>
                   <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Leave Type *</label>
                   <select id="leave-define-leave-type" value={leaveTypeId} onChange={(e) => { setLeaveTypeId(e.target.value); clearFieldError("leave_type"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.leave_type ? "#dc2626" : "var(--line)" }}>
-                    <option value="">Leave Type</option>
+                    <option value="">Select Leave Type</option>
                     {leaveTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </select>
                   {fieldErrors.leave_type ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.leave_type}</span> : null}
                 </div>
                 <div style={{ display: "grid", gap: 4 }}>
                   <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Days *</label>
-                  <input id="leave-define-days" type="number" min="1" step="1" value={days} onChange={(e) => { setDays(e.target.value); clearFieldError("days"); }} style={{ ...fieldStyle(), borderColor: fieldErrors.days ? "#dc2626" : "var(--line)" }} />
+                  <input id="leave-define-days" type="number" min="1" step="1" value={days} onChange={(e) => { setDays(e.target.value); clearFieldError("days"); }} placeholder="Enter days greater than 0" style={{ ...fieldStyle(), borderColor: fieldErrors.days ? "#dc2626" : "var(--line)" }} />
                   {fieldErrors.days ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.days}</span> : null}
                 </div>
               </div>
@@ -3189,7 +3308,10 @@ export function HrLeaveDefinePanel() {
 
             {/* Save Action */}
             <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "flex", justifyContent: "flex-end" }}>
-              <button type="submit" style={buttonStyle()} disabled={saving || loading}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" style={buttonStyle("#6b7280")} onClick={resetForm} disabled={saving || loading}>Reset</button>
+                <button type="submit" style={buttonStyle()} disabled={saving || loading}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</button>
+              </div>
             </div>
           </form>
           {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
@@ -3197,19 +3319,28 @@ export function HrLeaveDefinePanel() {
         </div>
 
         <div className="white-box" style={boxStyle()}>
-          {loading ? <p style={{ marginTop: 0, color: "var(--text-muted)" }}>Loading leave define data...</p> : null}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
+            <h3 style={{ margin: 0 }}>Leave Allocation Rules</h3>
+            <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
+              Showing {paginatedRows.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredRows.length)} of {filteredRows.length}
+            </div>
+          </div>
+          <p style={{ marginTop: 0, marginBottom: 10, color: "var(--text-muted)", fontSize: 12 }}>
+            Priority order: staff-specific rules override student-based rules, which override role-based rules.
+          </p>
+          {loading ? <p style={{ marginTop: 0, color: "var(--text-muted)" }}>Loading leave policy data...</p> : null}
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Scope</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Leave Type</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Days</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th></tr></thead>
+            <thead><tr><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Scope</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Leave Type</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Days</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Priority</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th></tr></thead>
             <tbody>
               {noLeaveDefinitions ? (
                 <tr>
-                  <td colSpan={4} style={{ padding: 12, color: "var(--text-muted)", borderBottom: "1px solid var(--line)" }}>
+                  <td colSpan={5} style={{ padding: 12, color: "var(--text-muted)", borderBottom: "1px solid var(--line)" }}>
                     No leave definitions found.
                   </td>
                 </tr>
               ) : null}
-              {rows.map((row) => (
-                <tr key={row.id}>
+              {paginatedRows.map((row) => (
+                <tr key={row.id} style={{ background: row.staff ? "#ecfeff" : row.student ? "#f5f3ff" : "transparent" }}>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
                     {row.student_name
                       ? `${row.student_name} (${row.class_name || "-"}/${row.section_name || "-"})`
@@ -3222,7 +3353,12 @@ export function HrLeaveDefinePanel() {
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.leave_type_name || row.leave_type}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.days}</td>
                   <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                    <div style={{ display: "flex", gap: 6 }}>
+                    <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600, color: row.staff ? "#0f766e" : row.student ? "#6d28d9" : "#475569", background: row.staff ? "#ccfbf1" : row.student ? "#ede9fe" : "#e2e8f0" }}>
+                      {row.staff ? "Staff priority" : row.student ? "Student priority" : "Role priority"}
+                    </span>
+                  </td>
+                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button
                         type="button"
                         style={buttonStyle("#0ea5e9")}
@@ -3244,17 +3380,51 @@ export function HrLeaveDefinePanel() {
                           setStudentId(row.student ? String(row.student) : "");
                           setLeaveTypeId(String(row.leave_type));
                           setDays(String(row.days));
+                          setError("");
+                          setToast("");
+                          formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                         }}
                       >
                         Edit
                       </button>
-                      <button type="button" style={buttonStyle("#dc2626")} onClick={() => void apiDelete(`/api/v1/hr/leave-defines/${row.id}/`).then(load).catch(() => setError("Unable to delete leave define."))}>Delete</button>
+                      <button type="button" style={buttonStyle("#dc2626")} onClick={() => {
+                        if (!window.confirm("Delete this leave policy?")) return;
+                        void apiDelete(`/api/v1/hr/leave-defines/${row.id}/`).then(async () => {
+                          setToast("Leave policy deleted successfully.");
+                          await load();
+                        }).catch((err) => setError(err instanceof Error ? err.message : "Unable to delete leave policy."));
+                      }}>Delete</button>
                     </div>
                   </td>
                 </tr>
               ))}
+              {paginatedRows.length === 0 && filteredRows.length > 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: 12, textAlign: "center", color: "var(--text-muted)" }}>
+                    No leave definitions match the selected filters.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
+          {totalPages > 1 ? (
+            <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 14 }}>
+              <button type="button" style={buttonStyle("#334155")} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1}>Previous</button>
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => setCurrentPage(page)}
+                    style={{ width: 34, height: 34, border: currentPage === page ? "1px solid var(--primary)" : "1px solid var(--line)", background: currentPage === page ? "var(--primary)" : "var(--surface)", color: currentPage === page ? "#fff" : "var(--text)", borderRadius: 6, cursor: "pointer" }}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button type="button" style={buttonStyle("#334155")} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages}>Next</button>
+            </div>
+          ) : null}
         </div>
       </div></section>
     </div>
@@ -3266,10 +3436,22 @@ export function HrStaffAttendancePanel() {
   const [rows, setRows] = useState<StaffAttendance[]>([]);
   const [report, setReport] = useState<AttendanceReport | null>(null);
   const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [attendanceDateError, setAttendanceDateError] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "P" | "A" | "L" | "F" | "H">("all");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [statusByStaff, setStatusByStaff] = useState<Record<number, "P" | "A" | "L" | "F" | "H">>({});
   const [noteByStaff, setNoteByStaff] = useState<Record<number, string>>({});
+  const [noteErrorsByStaff, setNoteErrorsByStaff] = useState<Record<number, string>>({});
+
+  const PAGE_SIZE = 25;
+  const MAX_NOTE_LENGTH = 200;
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const statusLabel: Record<string, string> = {
     P: "Present",
@@ -3279,16 +3461,51 @@ export function HrStaffAttendancePanel() {
     H: "Holiday",
   };
 
+  const isWeekend = useMemo(() => {
+    if (!attendanceDate) return false;
+    const day = new Date(`${attendanceDate}T00:00:00`).getDay();
+    return day === 0 || day === 6;
+  }, [attendanceDate]);
+
+  const fetchAllPages = async <T,>(path: string): Promise<T[]> => {
+    const merged: T[] = [];
+    let nextPath = path;
+
+    for (let i = 0; i < 50 && nextPath; i += 1) {
+      const data = await apiGet<ApiList<T> & { next?: string | null }>(nextPath);
+      merged.push(...listData<T>(data));
+
+      const nextRaw = (data as { next?: string | null }).next;
+      if (!nextRaw) {
+        nextPath = "";
+        continue;
+      }
+
+      if (nextRaw.startsWith("http")) {
+        try {
+          const nextUrl = new URL(nextRaw);
+          nextPath = `${nextUrl.pathname}${nextUrl.search}`;
+        } catch {
+          nextPath = "";
+        }
+      } else {
+        nextPath = nextRaw;
+      }
+    }
+
+    return merged;
+  };
+
   const load = async () => {
     try {
+      setLoading(true);
       setError("");
-      const [staffData, attendanceData, reportData] = await Promise.all([
-        apiGet<ApiList<Staff>>("/api/v1/hr/staff/?status=active"),
-        apiGet<ApiList<StaffAttendance>>(`/api/v1/hr/staff-attendance/?attendance_date=${attendanceDate}`),
+
+      const [staffList, attendanceList, reportData] = await Promise.all([
+        fetchAllPages<Staff>("/api/v1/hr/staff/?status=active"),
+        fetchAllPages<StaffAttendance>(`/api/v1/hr/staff-attendance/?attendance_date=${attendanceDate}`),
         apiGet<AttendanceReport>(`/api/v1/hr/staff-attendance/report/?attendance_date=${attendanceDate}`),
       ]);
-      const staffList = listData(staffData);
-      const attendanceList = listData(attendanceData);
 
       const statusMap: Record<number, "P" | "A" | "L" | "F" | "H"> = {};
       const noteMap: Record<number, string> = {};
@@ -3302,8 +3519,11 @@ export function HrStaffAttendancePanel() {
       setReport(reportData);
       setStatusByStaff(statusMap);
       setNoteByStaff(noteMap);
+      setNoteErrorsByStaff({});
     } catch {
       setError("Unable to load staff attendance.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -3311,21 +3531,106 @@ export function HrStaffAttendancePanel() {
     void load();
   }, [attendanceDate]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, attendanceDate]);
+
+  const filteredStaffRows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return staffRows.filter((staff) => {
+      const status = statusByStaff[staff.id] || "P";
+      const matchesSearch = !term
+        || `${staff.first_name} ${staff.last_name}`.toLowerCase().includes(term)
+        || (staff.staff_no || "").toLowerCase().includes(term);
+      const matchesStatus = statusFilter === "all" || status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [staffRows, statusByStaff, search, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredStaffRows.length / PAGE_SIZE));
+  const paginatedStaffRows = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredStaffRows.slice(start, start + PAGE_SIZE);
+  }, [filteredStaffRows, currentPage]);
+
+  const liveSummary = useMemo(() => {
+    const byType: Record<string, number> = { P: 0, A: 0, L: 0, F: 0, H: 0 };
+    staffRows.forEach((staff) => {
+      const code = statusByStaff[staff.id] || "P";
+      byType[code] = (byType[code] || 0) + 1;
+    });
+    return {
+      total: staffRows.length,
+      by_type: byType,
+    };
+  }, [staffRows, statusByStaff]);
+
+  const setBulkStatus = (status: "P" | "A" | "L" | "F" | "H") => {
+    setStatusByStaff((prev) => {
+      const next = { ...prev };
+      staffRows.forEach((staff) => {
+        next[staff.id] = status;
+      });
+      return next;
+    });
+    setToast(`All employees marked as ${statusLabel[status]}.`);
+  };
+
+  const onNoteChange = (staffId: number, value: string) => {
+    if (value.length > MAX_NOTE_LENGTH) {
+      setNoteErrorsByStaff((prev) => ({ ...prev, [staffId]: `Maximum ${MAX_NOTE_LENGTH} characters allowed.` }));
+      return;
+    }
+
+    setNoteByStaff((prev) => ({ ...prev, [staffId]: value }));
+    setNoteErrorsByStaff((prev) => ({ ...prev, [staffId]: "" }));
+  };
+
   const saveAttendance = async () => {
+    if (!attendanceDate) {
+      setAttendanceDateError("Attendance date is required.");
+      setError("Please select attendance date.");
+      return;
+    }
+
+    if (attendanceDate > today) {
+      setAttendanceDateError("Future dates are not allowed.");
+      setError("Attendance date cannot be in the future.");
+      return;
+    }
+
+    if (Object.values(noteErrorsByStaff).some((message) => !!message)) {
+      setError("Please fix note validation errors before saving.");
+      return;
+    }
+
+    if (staffRows.length === 0) {
+      setError("No active employees found for attendance.");
+      return;
+    }
+
+    if (!window.confirm(`Save attendance for ${staffRows.length} employees on ${attendanceDate}?`)) {
+      return;
+    }
+
     try {
+      setSaving(true);
       setError("");
       const payload = {
         rows: staffRows.map((staff) => ({
           staff: staff.id,
           attendance_date: attendanceDate,
           attendance_type: statusByStaff[staff.id] || "P",
-          note: noteByStaff[staff.id] || "",
+          note: (noteByStaff[staff.id] || "").trim(),
         })),
       };
-      await apiPost("/api/v1/hr/staff-attendance/bulk-store/", payload);
+      const response = await apiPost<{ detail?: string; count?: number }>("/api/v1/hr/staff-attendance/bulk-store/", payload);
       await load();
+      setToast(response?.detail ? `${response.detail} (${response?.count || 0} rows)` : "Attendance saved successfully.");
     } catch {
       setError("Unable to save staff attendance.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -3335,56 +3640,128 @@ export function HrStaffAttendancePanel() {
       <section className="admin-visitor-area up_st_admin_visitor"><div className="container-fluid p-0">
         <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
           <h3 style={{ marginTop: 0, marginBottom: 10 }}>Attendance Date</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "220px auto auto", gap: 8 }}>
-            <input type="date" value={attendanceDate} onChange={(e) => setAttendanceDate(e.target.value)} style={fieldStyle()} />
-            <button type="button" style={buttonStyle("#0ea5e9")} onClick={() => void load()}>Load</button>
-            <button type="button" style={buttonStyle()} onClick={() => void saveAttendance()}>Save Attendance</button>
+          <div style={{ display: "grid", gridTemplateColumns: "220px auto auto", gap: 8, alignItems: "end" }}>
+            <div style={{ display: "grid", gap: 4 }}>
+              <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Date *</label>
+              <input
+                type="date"
+                value={attendanceDate}
+                max={today}
+                onChange={(e) => {
+                  setAttendanceDate(e.target.value);
+                  setAttendanceDateError("");
+                  setError("");
+                }}
+                style={{ ...fieldStyle(), borderColor: attendanceDateError ? "#dc2626" : "var(--line)" }}
+              />
+              {attendanceDateError ? <span style={{ color: "#dc2626", fontSize: 12 }}>{attendanceDateError}</span> : null}
+            </div>
+            <button type="button" style={buttonStyle("#0ea5e9")} onClick={() => void load()} disabled={loading || saving}>{loading ? "Loading..." : "Load"}</button>
+            <button type="button" style={buttonStyle()} onClick={() => void saveAttendance()} disabled={loading || saving}>{saving ? "Saving..." : "Save Attendance"}</button>
           </div>
+          <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" style={buttonStyle("#059669")} onClick={() => setBulkStatus("P")} disabled={loading || saving}>Mark All Present</button>
+            <button type="button" style={buttonStyle("#dc2626")} onClick={() => setBulkStatus("A")} disabled={loading || saving}>Mark All Absent</button>
+            <button type="button" style={buttonStyle("#d97706")} onClick={() => setBulkStatus("L")} disabled={loading || saving}>Mark All Leave</button>
+            <button type="button" style={buttonStyle("#0f766e")} onClick={() => setBulkStatus("F")} disabled={loading || saving}>Mark All Half Day</button>
+            <button type="button" style={buttonStyle("#334155")} onClick={() => setBulkStatus("H")} disabled={loading || saving}>Mark All Holiday</button>
+          </div>
+          {isWeekend ? <p style={{ color: "#d97706", marginTop: 8, marginBottom: 0 }}>Selected date is a weekend. You can use "Mark All Holiday" if this is a non-working day.</p> : null}
           {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
+          {toast ? <p style={{ color: "#16a34a", marginTop: 8 }}>{toast}</p> : null}
         </div>
 
-        {report && (
+        {(report || liveSummary) && (
           <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
-            <h3 style={{ marginTop: 0, marginBottom: 10 }}>Attendance Summary</h3>
+            <h3 style={{ marginTop: 0, marginBottom: 10 }}>Attendance Summary (Live)</h3>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8 }}>
-              <div>Total: <strong>{report.total}</strong></div>
-              <div>Present: <strong>{report.by_type?.P || 0}</strong></div>
-              <div>Absent: <strong>{report.by_type?.A || 0}</strong></div>
-              <div>Leave: <strong>{report.by_type?.L || 0}</strong></div>
-              <div>Half Day: <strong>{report.by_type?.F || 0}</strong></div>
-              <div>Holiday: <strong>{report.by_type?.H || 0}</strong></div>
+              <div>Total: <strong>{liveSummary.total}</strong></div>
+              <div>Present: <strong>{liveSummary.by_type?.P || 0}</strong></div>
+              <div>Absent: <strong>{liveSummary.by_type?.A || 0}</strong></div>
+              <div>Leave: <strong>{liveSummary.by_type?.L || 0}</strong></div>
+              <div>Half Day: <strong>{liveSummary.by_type?.F || 0}</strong></div>
+              <div>Holiday: <strong>{liveSummary.by_type?.H || 0}</strong></div>
             </div>
+            <p style={{ marginTop: 8, marginBottom: 0, color: "var(--text-muted)", fontSize: 12 }}>Saved snapshot for selected date: {report?.total || 0} records.</p>
           </div>
         )}
 
         <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Staff</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Status</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Note</th></tr></thead>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+            <h3 style={{ margin: 0 }}>Mark Attendance</h3>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or staff no" style={{ ...fieldStyle(), width: 240 }} />
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "all" | "P" | "A" | "L" | "F" | "H")} style={{ ...fieldStyle(), width: 180 }}>
+                <option value="all">All Statuses</option>
+                <option value="P">Present</option>
+                <option value="A">Absent</option>
+                <option value="L">Leave</option>
+                <option value="F">Half Day</option>
+                <option value="H">Holiday</option>
+              </select>
+            </div>
+          </div>
+
+          <p style={{ marginTop: 0, marginBottom: 8, color: "var(--text-muted)", fontSize: 12 }}>
+            Showing {paginatedStaffRows.length} of {filteredStaffRows.length} filtered employees ({staffRows.length} total).
+          </p>
+
+          <div style={{ maxHeight: 520, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
+            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
+              <thead>
+                <tr>
+                  <th style={{ position: "sticky", top: 0, zIndex: 1, background: "#f8fafc", textAlign: "left", padding: 10, borderBottom: "1px solid var(--line)" }}>Staff</th>
+                  <th style={{ position: "sticky", top: 0, zIndex: 1, background: "#f8fafc", textAlign: "left", padding: 10, borderBottom: "1px solid var(--line)" }}>Status *</th>
+                  <th style={{ position: "sticky", top: 0, zIndex: 1, background: "#f8fafc", textAlign: "left", padding: 10, borderBottom: "1px solid var(--line)" }}>Note (Max {MAX_NOTE_LENGTH})</th>
+                </tr>
+              </thead>
             <tbody>
-              {staffRows.map((staff) => (
-                <tr key={staff.id}>
-                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{staff.first_name} {staff.last_name} ({staff.staff_no})</td>
-                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+              {loading && (
+                <tr>
+                  <td colSpan={3} style={{ padding: 12, color: "var(--text-muted)", textAlign: "center" }}>Loading employees...</td>
+                </tr>
+              )}
+              {!loading && paginatedStaffRows.length === 0 && (
+                <tr>
+                  <td colSpan={3} style={{ padding: 12, color: "var(--text-muted)", textAlign: "center" }}>No employees match current filters.</td>
+                </tr>
+              )}
+              {paginatedStaffRows.map((staff, index) => (
+                <tr key={staff.id} style={{ background: index % 2 === 0 ? "#ffffff" : "#fcfdff" }}>
+                  <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{staff.first_name} {staff.last_name} ({staff.staff_no})</td>
+                  <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
                     <select
                       value={statusByStaff[staff.id] || "P"}
-                      onChange={(e) => setStatusByStaff((prev) => ({ ...prev, [staff.id]: e.target.value as "P" | "A" | "L" | "F" | "H" }))}
+                      onChange={(e) => {
+                        setStatusByStaff((prev) => ({ ...prev, [staff.id]: e.target.value as "P" | "A" | "L" | "F" | "H" }));
+                      }}
                       style={fieldStyle()}
                     >
                       {Object.entries(statusLabel).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
                     </select>
                   </td>
-                  <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
+                  <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
                     <input
                       value={noteByStaff[staff.id] || ""}
-                      onChange={(e) => setNoteByStaff((prev) => ({ ...prev, [staff.id]: e.target.value }))}
-                      placeholder="Optional note"
-                      style={fieldStyle()}
+                      onChange={(e) => onNoteChange(staff.id, e.target.value)}
+                      placeholder="Reason or context (optional)"
+                      style={{ ...fieldStyle(), borderColor: noteErrorsByStaff[staff.id] ? "#dc2626" : "var(--line)" }}
                     />
+                    {noteErrorsByStaff[staff.id] ? <div style={{ color: "#dc2626", fontSize: 12, marginTop: 4 }}>{noteErrorsByStaff[staff.id]}</div> : <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>{(noteByStaff[staff.id] || "").length}/{MAX_NOTE_LENGTH} characters</div>}
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
+
+          {totalPages > 1 ? (
+            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" style={buttonStyle("#334155")} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1}>Prev</button>
+              <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Page {currentPage} of {totalPages}</span>
+              <button type="button" style={buttonStyle("#334155")} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages}>Next</button>
+            </div>
+          ) : null}
         </div>
 
         <div className="white-box" style={boxStyle()}>
@@ -3411,35 +3788,133 @@ export function HrStaffAttendancePanel() {
 export function HrLeaveRequestsPanel() {
   const [rows, setRows] = useState<LeaveRequest[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  const [staffRows, setStaffRows] = useState<Staff[]>([]);
   const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [actionByRow, setActionByRow] = useState<Record<number, string>>({});
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [currentUser, setCurrentUser] = useState<MePayload | null>(null);
 
   const [applyDate] = useState(new Date().toISOString().slice(0, 10));
+  const [staffId, setStaffId] = useState("");
   const [leaveTypeId, setLeaveTypeId] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [reason, setReason] = useState("");
   const [attachment, setAttachment] = useState("");
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  
+  const [fieldErrors, setFieldErrors] = useState<{
+    staff?: string;
+    leaveType?: string;
+    fromDate?: string;
+    toDate?: string;
+    reason?: string;
+    attachment?: string;
+  }>({});
+  
+  const minReasonLength = 20;
+  const maxReasonLength = 500;
+  const maxFileSize = 5 * 1024 * 1024; // 5MB
+  const allowedFileTypes = ["application/pdf", "image/jpeg", "image/png"];
+  const allowedFileExtensions = [".pdf", ".jpg", ".jpeg", ".png"];
+  const canSelectStaff = !!currentUser && (currentUser.is_superuser || currentUser.is_school_admin);
+  const canModerateLeave = !!currentUser && (
+    currentUser.is_superuser
+    || currentUser.is_school_admin
+    || currentUser.permission_codes.includes("human_resource.apply_leave.view")
+    || currentUser.permission_codes.includes("human_resource.apply_leave.edit")
+    || currentUser.permission_codes.includes("human_resource.apply_leave.delete")
+  );
 
   const load = async () => {
     try {
+      setLoading(true);
       setError("");
-      const [leaveData, typeData] = await Promise.all([
+      const [leaveData, typeData, meData, staffData] = await Promise.all([
         apiGet<ApiList<LeaveRequest>>("/api/v1/hr/leave-requests/"),
         apiGet<ApiList<LeaveType>>("/api/v1/hr/leave-types/?is_active=true"),
+        apiGet<MePayload>("/api/v1/auth/me/"),
+        apiGet<ApiList<Staff>>("/api/v1/hr/staff/?status=active"),
       ]);
       setRows(listData(leaveData));
       setLeaveTypes(listData(typeData));
+      setCurrentUser(meData);
+      setStaffRows(listData(staffData));
     } catch {
       setError("Unable to load leave requests.");
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     void load();
   }, []);
+
+  const validateForm = () => {
+    const nextErrors: typeof fieldErrors = {};
+
+    if (canSelectStaff && !staffId.trim()) {
+      nextErrors.staff = "Employee is required.";
+    }
+    
+    if (!leaveTypeId.trim()) {
+      nextErrors.leaveType = "Leave type is required.";
+    }
+    
+    if (!fromDate.trim()) {
+      nextErrors.fromDate = "From date is required.";
+    }
+    
+    if (!toDate.trim()) {
+      nextErrors.toDate = "To date is required.";
+    }
+    
+    if (fromDate && toDate) {
+      if (toDate < fromDate) {
+        nextErrors.toDate = "To date cannot be earlier than From date.";
+      }
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const fromDateObj = new Date(fromDate);
+      const sixMonthsFromNow = new Date(today);
+      sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+      
+      if (fromDateObj < today) {
+        nextErrors.fromDate = "From date cannot be in the past.";
+      }
+      if (fromDateObj > sixMonthsFromNow) {
+        nextErrors.fromDate = "From date cannot be more than 6 months in the future.";
+      }
+    }
+    
+    if (reason.trim() && reason.trim().length < minReasonLength) {
+      nextErrors.reason = `Reason must be at least ${minReasonLength} characters.`;
+    }
+    if (reason.trim() && reason.trim().length > maxReasonLength) {
+      nextErrors.reason = `Reason cannot exceed ${maxReasonLength} characters.`;
+    }
+    
+    if (attachmentFile) {
+      if (!allowedFileTypes.includes(attachmentFile.type)) {
+        nextErrors.attachment = "Only PDF, JPG, and PNG files are allowed.";
+      }
+      if (attachmentFile.size > maxFileSize) {
+        nextErrors.attachment = `File size cannot exceed ${maxFileSize / (1024 * 1024)}MB.`;
+      }
+    }
+    
+    return nextErrors;
+  };
+
+  const clearFieldError = (field: keyof typeof fieldErrors) => {
+    if (!fieldErrors[field]) return;
+    setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
 
   const filteredRows = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -3457,33 +3932,46 @@ export function HrLeaveRequestsPanel() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!leaveTypeId || !fromDate || !toDate) {
-      setError("Leave type, from date and to date are required.");
+    setError("");
+    const nextErrors = validateForm();
+    setFieldErrors(nextErrors);
+    
+    if (Object.keys(nextErrors).length > 0) {
+      setError("Please fix the errors below before submitting.");
       return;
     }
+    
     try {
-      setError("");
+      setSaving(true);
       const payload = {
+        ...(canSelectStaff && staffId ? { staff: Number(staffId) } : {}),
         leave_type: Number(leaveTypeId),
         from_date: fromDate,
         to_date: toDate,
         reason: reason.trim(),
-        attachment: attachment.trim(),
+        attachment: attachmentFile?.name || "",
       };
       if (editingId) {
         await apiPatch(`/api/v1/hr/leave-requests/${editingId}/`, payload);
+        setToast("Leave request updated successfully.");
       } else {
         await apiPost("/api/v1/hr/leave-requests/", payload);
+        setToast("Leave request submitted successfully.");
       }
       setEditingId(null);
+      setStaffId("");
       setLeaveTypeId("");
       setFromDate("");
       setToDate("");
       setReason("");
       setAttachment("");
+      setAttachmentFile(null);
       await load();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Unable to save leave request.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to save leave request.";
+      setError(message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -3523,6 +4011,32 @@ export function HrLeaveRequestsPanel() {
     }
     if (action === "delete" && row.status === "pending") {
       await deletePending(row.id);
+      return;
+    }
+    if (action === "approve" && row.status === "pending" && canModerateLeave) {
+      try {
+        setError("");
+        const note = window.prompt("Approval note (optional):", "") || "";
+        await apiPost(`/api/v1/hr/leave-requests/${row.id}/approve/`, { approval_note: note.trim() });
+        setToast("Leave request approved successfully.");
+        await load();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unable to approve leave request.";
+        setError(message);
+      }
+      return;
+    }
+    if (action === "reject" && row.status === "pending" && canModerateLeave) {
+      try {
+        setError("");
+        const note = window.prompt("Rejection note (optional):", "") || "";
+        await apiPost(`/api/v1/hr/leave-requests/${row.id}/reject/`, { approval_note: note.trim() });
+        setToast("Leave request rejected successfully.");
+        await load();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unable to reject leave request.";
+        setError(message);
+      }
     }
   };
 
@@ -3539,6 +4053,7 @@ export function HrLeaveRequestsPanel() {
 
   const startEdit = (row: LeaveRequest) => {
     setEditingId(row.id);
+    setStaffId(String(row.staff ?? ""));
     setLeaveTypeId(String(row.leave_type));
     setFromDate(row.from_date);
     setToDate(row.to_date);
@@ -3548,77 +4063,186 @@ export function HrLeaveRequestsPanel() {
 
   const cancelEdit = () => {
     setEditingId(null);
+    setStaffId("");
     setLeaveTypeId("");
     setFromDate("");
     setToDate("");
     setReason("");
     setAttachment("");
+    setAttachmentFile(null);
+    setFieldErrors({});
+    setError("");
+    setToast("");
   };
 
   return (
     <div className="legacy-panel">
       {breadcrumb("Apply Leave")}
       <section className="admin-visitor-area up_st_admin_visitor"><div className="container-fluid p-0">
-        <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 14, alignItems: "start" }}>
-          <div className="white-box" style={boxStyle()}>
-            <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Apply Leave" : "Add Apply Leave"}</h3>
-            <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Apply Date *</span>
-              <input type="date" value={applyDate} readOnly style={{ ...fieldStyle(), background: "#f7f7f7" }} />
-            </label>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Leave Type *</span>
-              <select value={leaveTypeId} onChange={(e) => setLeaveTypeId(e.target.value)} style={fieldStyle()}>
-                <option value="">Leave type</option>
-                {leaveTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </label>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Leave From *</span>
-              <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={fieldStyle()} />
-            </label>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Leave To *</span>
-              <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={fieldStyle()} />
-            </label>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Reason</span>
-              <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason" style={{ width: "100%", minHeight: 90, border: "1px solid var(--line)", borderRadius: 8, padding: 10 }} />
-            </label>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>File</span>
-              <input
-                type="file"
-                onChange={(e) => setAttachment(e.target.files?.[0]?.name || "")}
-                style={{ ...fieldStyle(), paddingTop: 7 }}
-              />
-            </label>
-            {attachment && <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Selected: {attachment}</div>}
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <button type="submit" style={buttonStyle()}>{editingId ? "Update" : "Save Apply Leave"}</button>
-              {editingId && <button type="button" style={buttonStyle("#6b7280")} onClick={cancelEdit}>Cancel</button>}
-            </div>
-          </form>
-          {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
-          </div>
-
-          <div className="white-box" style={boxStyle()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <h3 style={{ margin: 0 }}>Leave List</h3>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search" style={{ ...fieldStyle(), width: 180 }} />
-                <button type="button" style={buttonStyle("#7c3aed")}>Copy</button>
-                <button type="button" style={buttonStyle("#7c3aed")}>Excel</button>
-                <button type="button" style={buttonStyle("#7c3aed")}>CSV</button>
-                <button type="button" style={buttonStyle("#7c3aed")}>PDF</button>
-                <button type="button" style={buttonStyle("#7c3aed")}>Print</button>
+        <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
+          <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Leave Request" : "Apply for Leave"}</h3>
+          
+          <form onSubmit={submit} style={{ display: "grid", gap: 16 }}>
+            {/* Leave Details Section */}
+            <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
+              <h4 style={{ margin: 0, fontSize: 14 }}>1. Leave Details</h4>
+              <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>
+                {canSelectStaff
+                  ? "Select the employee who is applying for leave."
+                  : "This request will be created for your linked staff profile."}
+              </p>
+              
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {canSelectStaff ? (
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Employee *</label>
+                    <select
+                      value={staffId}
+                      onChange={(e) => { setStaffId(e.target.value); clearFieldError("staff"); }}
+                      style={{ ...fieldStyle(), borderColor: fieldErrors.staff ? "#dc2626" : "var(--line)" }}
+                    >
+                      <option value="">Select Employee</option>
+                      {staffRows.map((item) => <option key={item.id} value={item.id}>{item.first_name} {item.last_name} ({item.staff_no})</option>)}
+                    </select>
+                    {fieldErrors.staff ? <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.staff}</span> : null}
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Required for admin and school admin users.</span>
+                  </div>
+                ) : null}
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Application Date</label>
+                  <input type="date" value={applyDate} readOnly style={{ ...fieldStyle(), background: "#f7f7f7" }} />
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Auto-filled with today's date</span>
+                </div>
+                
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>Leave Type *</label>
+                  <select 
+                    value={leaveTypeId} 
+                    onChange={(e) => { setLeaveTypeId(e.target.value); clearFieldError("leaveType"); }}
+                    style={{ ...fieldStyle(), borderColor: fieldErrors.leaveType ? "#dc2626" : "var(--line)" }}
+                  >
+                    <option value="">-- Select Leave Type --</option>
+                    {leaveTypes.map((item) => <option key={item.id} value={item.id}>{item.name} (Max: {item.max_days_per_year} days)</option>)}
+                  </select>
+                  {fieldErrors.leaveType && <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.leaveType}</span>}
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Required field</span>
+                </div>
               </div>
             </div>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Type</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>From</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>To</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Apply Date</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Status</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th></tr></thead>
+
+            {/* Date Range Section */}
+            <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
+              <h4 style={{ margin: 0, fontSize: 14 }}>2. Leave Period</h4>
+              <p style={{ margin: "0 0 10px 0", fontSize: 12, color: "var(--text-muted)" }}>Select the date range for your leave request. You cannot request leave for past dates or more than 6 months in advance.</p>
+              
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>From Date *</label>
+                  <input 
+                    type="date" 
+                    value={fromDate}
+                    onChange={(e) => { setFromDate(e.target.value); clearFieldError("fromDate"); }}
+                    style={{ ...fieldStyle(), borderColor: fieldErrors.fromDate ? "#dc2626" : "var(--line)" }}
+                  />
+                  {fieldErrors.fromDate && <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.fromDate}</span>}
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>YYYY-MM-DD format</span>
+                </div>
+                
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>To Date *</label>
+                  <input 
+                    type="date"
+                    value={toDate}
+                    onChange={(e) => { setToDate(e.target.value); clearFieldError("toDate"); }}
+                    style={{ ...fieldStyle(), borderColor: fieldErrors.toDate ? "#dc2626" : "var(--line)" }}
+                  />
+                  {fieldErrors.toDate && <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.toDate}</span>}
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Must be on or after From Date</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Reason Section */}
+            <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
+              <h4 style={{ margin: 0, fontSize: 14 }}>3. Reason for Leave</h4>
+              
+              <div style={{ display: "grid", gap: 4 }}>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>
+                  Reason {reason.trim().length === 0 ? "(Optional)" : `(${reason.trim().length} / ${maxReasonLength} characters)`}
+                </label>
+                <textarea 
+                  value={reason}
+                  onChange={(e) => { setReason(e.target.value); clearFieldError("reason"); }}
+                  placeholder="Enter your reason for leave (20-500 characters)"
+                  style={{ 
+                    width: "100%", 
+                    minHeight: 100, 
+                    border: `1px solid ${fieldErrors.reason ? "#dc2626" : "var(--line)"}`,
+                    borderRadius: 8, 
+                    padding: 10,
+                    fontFamily: "inherit"
+                  }}
+                />
+                {fieldErrors.reason && <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.reason}</span>}
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  {reason.trim().length === 0 ? "Optional field" : reason.trim().length < minReasonLength ? `Add ${minReasonLength - reason.trim().length} more characters` : "✓ Valid length"}
+                </span>
+              </div>
+            </div>
+
+            {/* File Upload Section */}
+            <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "grid", gap: 10 }}>
+              <h4 style={{ margin: 0, fontSize: 14 }}>4. Supporting Documents (Optional)</h4>
+              <p style={{ margin: "0 0 10px 0", fontSize: 12, color: "var(--text-muted)" }}>Upload supporting documents (PDF, JPG, PNG). File size limit: 5MB.</p>
+              
+              <div style={{ display: "grid", gap: 4 }}>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>File (Optional)</label>
+                <input
+                  type="file"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setAttachmentFile(file);
+                      setAttachment(file.name);
+                      clearFieldError("attachment");
+                    }
+                  }}
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  style={{ ...fieldStyle(), borderColor: fieldErrors.attachment ? "#dc2626" : "var(--line)" }}
+                />
+                {fieldErrors.attachment && <span style={{ color: "#dc2626", fontSize: 12 }}>{fieldErrors.attachment}</span>}
+                {attachmentFile && <div style={{ color: "#059669", fontSize: 12 }}>✓ Selected: {attachmentFile.name} ({(attachmentFile.size / 1024).toFixed(2)} KB)</div>}
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Allowed: PDF, JPG, PNG | Max size: 5MB</span>
+              </div>
+            </div>
+
+            {/* Submit Section */}
+            <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" style={buttonStyle("#6b7280")} onClick={cancelEdit} disabled={saving}>Reset</button>
+              <button type="submit" style={buttonStyle()} disabled={saving || loading}>{saving ? "Saving..." : editingId ? "Update" : "Submit Leave Request"}</button>
+            </div>
+          </form>
+
+          {error && <p style={{ color: "#dc2626", marginTop: 12, padding: 10, background: "#fee2e2", borderRadius: 6, fontSize: 13 }}>{error}</p>}
+          {toast && <p style={{ color: "#059669", marginTop: 12, padding: 10, background: "#ecfdf5", borderRadius: 6, fontSize: 13 }}>{toast}</p>}
+        </div>
+
+        <div className="white-box" style={boxStyle()}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h3 style={{ margin: 0 }}>Your Leave Requests</h3>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." style={{ ...fieldStyle(), width: 200 }} />
+          </div>
+          {loading ? <p style={{ color: "var(--text-muted)" }}>Loading leave requests...</p> : null}
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Type</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>From</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>To</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Applied</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Status</th><th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid var(--line)" }}>Action</th></tr></thead>
             <tbody>
+              {filteredRows.length === 0 && (
+                <tr>
+                  <td colSpan={6} style={{ padding: 12, textAlign: "center", color: "var(--text-muted)" }}>
+                    {search ? "No leave requests match your search." : "No leave requests yet."}
+                  </td>
+                </tr>
+              )}
               {filteredRows.map((row) => {
                 const leaveType = leaveTypes.find((item) => item.id === row.leave_type);
                 return (
@@ -3646,14 +4270,15 @@ export function HrLeaveRequestsPanel() {
                         <option value="view">View</option>
                         {row.status === "pending" && <option value="edit">Edit</option>}
                         {row.status === "pending" && <option value="delete">Delete</option>}
+                        {row.status === "pending" && canModerateLeave && <option value="approve">Approve</option>}
+                        {row.status === "pending" && canModerateLeave && <option value="reject">Reject</option>}
                       </select>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
-            </table>
-          </div>
+          </table>
         </div>
       </div></section>
     </div>

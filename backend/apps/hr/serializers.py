@@ -660,22 +660,56 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "school", "approved_by", "approved_at", "created_at", "updated_at"]
         extra_kwargs = {
             "staff": {"required": False},
+            "leave_type": {"required": True},
+            "from_date": {"required": True},
+            "to_date": {"required": True},
         }
+
+    def validate_leave_type(self, value):
+        if not value:
+            raise serializers.ValidationError("Leave type is required.")
+        return value
+
+    def validate_from_date(self, value):
+        import datetime
+        today = datetime.date.today()
+        if value < today:
+            raise serializers.ValidationError("From date cannot be in the past.")
+        max_future = today + datetime.timedelta(days=180)  # 6 months
+        if value > max_future:
+            raise serializers.ValidationError("From date cannot be more than 6 months in the future.")
+        return value
+
+    def validate_reason(self, value):
+        if value and value.strip():
+            reason_length = len(value.strip())
+            if reason_length < 20:
+                raise serializers.ValidationError("Reason must be at least 20 characters if provided.")
+            if reason_length > 500:
+                raise serializers.ValidationError("Reason cannot exceed 500 characters.")
+        return value
 
     def validate(self, attrs):
         request = self.context.get("request")
         school_id = request.user.school_id if request else None
+        
+        # Get values, falling back to instance values if updating
         staff = attrs.get("staff") or getattr(self.instance, "staff", None)
         leave_type = attrs.get("leave_type") or getattr(self.instance, "leave_type", None)
         from_date = attrs.get("from_date") or getattr(self.instance, "from_date", None)
         to_date = attrs.get("to_date") or getattr(self.instance, "to_date", None)
 
-        if from_date and to_date and to_date < from_date:
-            raise serializers.ValidationError({"to_date": "to_date cannot be earlier than from_date."})
+        # Validate date range
+        if from_date and to_date:
+            if to_date < from_date:
+                raise serializers.ValidationError({"to_date": "To date cannot be earlier than From date."})
+        
+        # Validate school associations
         if school_id and staff and staff.school_id != school_id:
             raise serializers.ValidationError({"staff": "Selected staff member does not belong to your school."})
         if school_id and leave_type and leave_type.school_id != school_id:
             raise serializers.ValidationError({"leave_type": "Selected leave type does not belong to your school."})
+        
         return attrs
 
 
