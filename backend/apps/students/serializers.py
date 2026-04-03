@@ -160,7 +160,17 @@ class StudentSerializer(serializers.ModelSerializer):
         return self._validate_plain_text_name(value, "First name")
 
     def validate_last_name(self, value):
-        return self._validate_plain_text_name(value, "Last name")
+        cleaned = self._validate_plain_text_name(value, "Last name")
+        if not (cleaned or "").strip():
+            raise serializers.ValidationError("Last name is required.")
+        return cleaned
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        last_name = attrs.get("last_name")
+        if self.instance is None and not (last_name or "").strip():
+            raise serializers.ValidationError({"last_name": "Last name is required."})
+        return attrs
 
     def validate_admission_no(self, value):
         request = self.context.get("request")

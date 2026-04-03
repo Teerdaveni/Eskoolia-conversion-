@@ -47,7 +47,7 @@ export function DueFeesLoginPermissionPanel() {
   const [message, setMessage] = useState("");
 
   const filteredSections = useMemo(() => {
-    if (!classId) return sections;
+    if (!classId) return [];
     return sections.filter((s) => String(s.class_id) === classId);
   }, [sections, classId]);
 
@@ -74,6 +74,13 @@ export function DueFeesLoginPermissionPanel() {
   }, [classId]);
 
   const searchUsers = async () => {
+    if (!classId && !sectionId && !name.trim() && !admissionNo.trim()) {
+      setError("Select class/section or enter name/admission no before searching.");
+      setMessage("");
+      setRows([]);
+      return;
+    }
+
     setLoading(true);
     setError("");
     setMessage("");

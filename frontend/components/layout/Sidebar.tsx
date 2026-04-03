@@ -31,7 +31,7 @@ function buildDefaultExpanded(items: SidebarItem[], pathname: string): Record<st
   const walk = (nodes: SidebarItem[]) => {
     nodes.forEach((node) => {
       if (node.children && node.children.length > 0) {
-        if (node.id === "student-info" || hasActiveDescendant(node, pathname)) {
+        if (hasActiveDescendant(node, pathname)) {
           map[node.id] = true;
         }
         walk(node.children);

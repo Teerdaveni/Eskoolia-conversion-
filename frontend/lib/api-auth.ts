@@ -7,6 +7,8 @@ const GENERIC_ERROR_MESSAGES = new Set([
   "validation failed",
   "bad request",
   "request failed",
+  "an unexpected error occurred",
+  "something went wrong",
 ]);
 
 function cleanMessage(value: string): string | null {
@@ -77,6 +79,11 @@ function extractFieldMessage(details: unknown): string | null {
 function extractApiErrorMessage(body: unknown, status: number): string {
   if (body && typeof body === "object") {
     const payload = body as Record<string, unknown>;
+
+    const fromErrors = extractFieldMessage(payload.errors);
+    if (fromErrors) {
+      return fromErrors;
+    }
 
     const fromErrorDetails = extractFieldMessage((payload.error as Record<string, unknown> | undefined)?.details);
     if (fromErrorDetails) {
@@ -166,7 +173,13 @@ export async function apiRequestWithRefresh<T>(path: string, options?: RequestIn
 
   let response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers: withAuthHeaders(token, options?.headers),
+    headers:
+      options?.body instanceof FormData
+        ? withAuthHeaders(token, options?.headers)
+        : withAuthHeaders(token, {
+            "Content-Type": "application/json",
+            ...(options?.headers as Record<string, string> | undefined),
+          }),
     cache: options?.cache ?? "no-store",
   });
 
@@ -176,7 +189,13 @@ export async function apiRequestWithRefresh<T>(path: string, options?: RequestIn
 
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
-      headers: withAuthHeaders(refreshed, options?.headers),
+      headers:
+        options?.body instanceof FormData
+          ? withAuthHeaders(refreshed, options?.headers)
+          : withAuthHeaders(refreshed, {
+              "Content-Type": "application/json",
+              ...(options?.headers as Record<string, string> | undefined),
+            }),
       cache: options?.cache ?? "no-store",
     });
   }
@@ -189,7 +208,13 @@ export async function apiRequestWithRefresh<T>(path: string, options?: RequestIn
         window.location.href = "/login";
       }
     }
-    throw new Error(extractApiErrorMessage(body, response.status));
+    const apiError = new Error(extractApiErrorMessage(body, response.status)) as Error & {
+      details?: unknown;
+      status?: number;
+    };
+    apiError.details = body;
+    apiError.status = response.status;
+    throw apiError;
   }
 
   if (response.status === 204) {

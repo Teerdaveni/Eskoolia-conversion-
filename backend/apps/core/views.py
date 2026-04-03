@@ -1,5 +1,7 @@
-from rest_framework import permissions, viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.response import Response
+from django.db import IntegrityError
 from .models import AcademicYear, Class, ClassPeriod, ClassRoom, Section, Subject, Vehicle, TransportRoute, AssignVehicle
 from .models import ItemCategory, ItemStore, Supplier, Item, ItemReceive, ItemIssue, ItemSell
 from .serializers import (
@@ -82,25 +84,212 @@ class ClassViewSet(TenantQueryMixin, viewsets.ModelViewSet):
             return qs.filter(school_id=user.school_id)
         return qs.none()
 
+    def create(self, request, *args, **kwargs):
+        try:
+            return super().create(request, *args, **kwargs)
+        except IntegrityError as exc:
+            message = str(exc).lower()
+            if "school_classes.school_id" in message and "school_classes.name" in message:
+                raise ValidationError({"name": ["Class name already exists"]})
+            raise ValidationError({"detail": "Unable to save class due to data integrity rules."})
+
+    def update(self, request, *args, **kwargs):
+        try:
+            return super().update(request, *args, **kwargs)
+        except IntegrityError as exc:
+            message = str(exc).lower()
+            if "school_classes.school_id" in message and "school_classes.name" in message:
+                raise ValidationError({"name": ["Class name already exists"]})
+            raise ValidationError({"detail": "Unable to update class due to data integrity rules."})
+
+    def partial_update(self, request, *args, **kwargs):
+        try:
+            return super().partial_update(request, *args, **kwargs)
+        except IntegrityError as exc:
+            message = str(exc).lower()
+            if "school_classes.school_id" in message and "school_classes.name" in message:
+                raise ValidationError({"name": ["Class name already exists"]})
+            raise ValidationError({"detail": "Unable to update class due to data integrity rules."})
+
 
 class SectionViewSet(viewsets.ModelViewSet):
     serializer_class = SectionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def _split_section_names(self, raw_value):
+        if raw_value is None:
+            return []
+        parts = [part.strip() for part in str(raw_value).split(",")]
+        return [part for part in parts if part]
+
+    def _normalize_legacy_combined_sections(self, queryset):
+        combined_rows = queryset.filter(name__contains=",")
+        for row in combined_rows:
+            names = self._split_section_names(row.name)
+            if not names:
+                row.delete()
+                continue
+
+            existing_lower = set(
+                Section.objects.filter(school_class_id=row.school_class_id)
+                .exclude(pk=row.pk)
+                .values_list("name", flat=True)
+            )
+            existing_lower = {name.casefold() for name in existing_lower if name}
+
+            for section_name in names:
+                if section_name.casefold() in existing_lower:
+                    continue
+                Section.objects.create(
+                    school_class_id=row.school_class_id,
+                    name=section_name,
+                    capacity=row.capacity,
+                )
+                existing_lower.add(section_name.casefold())
+
+            row.delete()
+
     def get_queryset(self):
         user = self.request.user
         qs = Section.objects.select_related("school_class__school")
         if user.is_superuser:
-            return qs
+            self._normalize_legacy_combined_sections(qs)
+            return Section.objects.select_related("school_class__school")
         if user.school_id:
-            return qs.filter(school_class__school_id=user.school_id)
+            scoped_qs = qs.filter(school_class__school_id=user.school_id)
+            self._normalize_legacy_combined_sections(scoped_qs)
+            return Section.objects.select_related("school_class__school").filter(school_class__school_id=user.school_id)
         return qs.none()
+
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+        school_class_id = data.get("school_class")
+        split_names = self._split_section_names(data.get("name"))
+
+        if not split_names:
+            raise ValidationError({"name": "Section name is required."})
+
+        if len(split_names) == 1:
+            data["name"] = split_names[0]
+            serializer = self.get_serializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+        duplicate_input = []
+        seen_input = set()
+        for name in split_names:
+            key = name.casefold()
+            if key in seen_input:
+                duplicate_input.append(name)
+            seen_input.add(key)
+
+        if duplicate_input:
+            raise ValidationError({"name": [f"Duplicate section names in input: {', '.join(sorted(set(duplicate_input)))}"]})
+
+        existing_lower = set(
+            Section.objects.filter(school_class_id=school_class_id).values_list("name", flat=True)
+        )
+        existing_lower = {name.casefold() for name in existing_lower if name}
+        duplicate_existing = [name for name in split_names if name.casefold() in existing_lower]
+        if duplicate_existing:
+            raise ValidationError({"name": ["Section name already exists"]})
+
+        created_rows = []
+        for section_name in split_names:
+            row_data = data.copy()
+            row_data["name"] = section_name
+            serializer = self.get_serializer(data=row_data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            created_rows.append(serializer.data)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Sections created successfully.",
+                "count": len(created_rows),
+                "data": created_rows,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class SubjectViewSet(TenantQueryMixin, viewsets.ModelViewSet):
     model = Subject
     serializer_class = SubjectSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return Response(
+            {
+                "success": True,
+                "message": "Subject created successfully",
+                "data": response.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        response = super().update(request, *args, **kwargs)
+        return Response(
+            {
+                "success": True,
+                "message": "Subject updated successfully",
+                "data": response.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        response = super().partial_update(request, *args, **kwargs)
+        return Response(
+            {
+                "success": True,
+                "message": "Subject updated successfully",
+                "data": response.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        subject = self.get_object()
+
+        # Business rule: prevent deletion if in timetable/exams/attendance.
+        from apps.academics.models import ClassRoutineSlot
+        from apps.exams.models import ExamSchedule, ExamSetup, ExamRoutine, ExamAttendance
+        from apps.attendance.models import SubjectAttendance
+
+        blockers = []
+        school_id = subject.school_id
+
+        if ClassRoutineSlot.objects.filter(school_id=school_id, subject_id=subject.id).exists():
+            blockers.append("Timetable")
+        if ExamSchedule.objects.filter(school_id=school_id, subject_id=subject.id).exists() \
+            or ExamSetup.objects.filter(school_id=school_id, subject_id=subject.id).exists() \
+            or ExamRoutine.objects.filter(school_id=school_id, subject_id=subject.id).exists() \
+            or ExamAttendance.objects.filter(school_id=school_id, subject_id=subject.id).exists():
+            blockers.append("Exams")
+        if SubjectAttendance.objects.filter(school_id=school_id, subject_id=subject.id).exists():
+            blockers.append("Attendance")
+
+        if blockers:
+            raise ValidationError(
+                {
+                    "subject": [f"Subject cannot be deleted because it is used in: {', '.join(blockers)}."],
+                }
+            )
+
+        super().destroy(request, *args, **kwargs)
+        return Response(
+            {
+                "success": True,
+                "message": "Subject deleted successfully",
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ClassPeriodViewSet(TenantQueryMixin, viewsets.ModelViewSet):
@@ -120,6 +309,112 @@ class ClassRoomViewSet(TenantQueryMixin, viewsets.ModelViewSet):
     model = ClassRoom
     serializer_class = ClassRoomSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def _normalized_errors(self, serializer_errors):
+        if isinstance(serializer_errors, dict):
+            message_values = serializer_errors.get("message")
+            if isinstance(message_values, list) and message_values:
+                return serializer_errors, str(message_values[0])
+            if isinstance(message_values, str) and message_values:
+                return serializer_errors, message_values
+
+            cleaned = {}
+            for key, value in serializer_errors.items():
+                if isinstance(value, list):
+                    cleaned[key] = [str(item) for item in value]
+                else:
+                    cleaned[key] = [str(value)]
+            return cleaned, "Validation failed"
+        return {}, "Validation failed"
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            self.perform_create(serializer)
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Room already exists",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {
+                "success": True,
+                "message": "Room added successfully",
+                "data": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            self.perform_update(serializer)
+        except IntegrityError:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Room already exists",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {
+                "success": True,
+                "message": "Room updated successfully",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        room = self.get_object()
+
+        # Prevent deletion when room is already used in timetable or lesson planning.
+        from apps.academics.models import ClassRoutineSlot, LessonPlanner
+
+        in_use = ClassRoutineSlot.objects.filter(school_id=room.school_id, room_id=room.id).exists() or \
+            LessonPlanner.objects.filter(school_id=room.school_id, room_id=room.id).exists()
+
+        if in_use:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Cannot delete. Room is already assigned",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        super().destroy(request, *args, **kwargs)
+        return Response(
+            {
+                "success": True,
+                "message": "Room deleted successfully",
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 # ===== TRANSPORT MODULE VIEWSETS =====

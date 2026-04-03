@@ -112,6 +112,16 @@ function buttonStyle(color = "var(--primary)") {
   } as const;
 }
 
+function labelStyle() {
+  return {
+    display: "block",
+    marginBottom: 4,
+    fontSize: 12,
+    color: "var(--text-muted)",
+    fontWeight: 600,
+  } as const;
+}
+
 export function AdmissionsPanel() {
   const router = useRouter();
   const [items, setItems] = useState<Inquiry[]>([]);
@@ -131,6 +141,7 @@ export function AdmissionsPanel() {
   const [dateTo, setDateTo] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [rowActions, setRowActions] = useState<Record<number, "" | "add_query" | "edit" | "delete">>({});
 
   const loadOptions = async () => {
     const [setupData, classData] = await Promise.all([
@@ -278,6 +289,32 @@ export function AdmissionsPanel() {
     }
   };
 
+  const runSelectedAction = async (item: Inquiry) => {
+    const action = rowActions[item.id] || "";
+    if (!action) return;
+
+    if (action === "add_query") {
+      router.push(`/administration/admission-query/${item.id}`);
+      return;
+    }
+
+    if (action === "edit") {
+      edit(item);
+      return;
+    }
+
+    if (action === "delete") {
+      await remove(item.id);
+    }
+  };
+
+  const selectedActionButton = (action: "" | "add_query" | "edit" | "delete") => {
+    if (action === "add_query") return { label: "Add Query", color: "#0f766e" };
+    if (action === "edit") return { label: "Edit", color: "#0ea5e9" };
+    if (action === "delete") return { label: "Delete", color: "#dc2626" };
+    return { label: "Run", color: "#94a3b8" };
+  };
+
   return (
     <div className="legacy-panel">
       <section className="sms-breadcrumb mb-20">
@@ -296,18 +333,32 @@ export function AdmissionsPanel() {
           <div className="white-box" style={boxStyle()}>
             <h3 style={{ marginTop: 0, marginBottom: 12 }}>Select Criteria</h3>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
-              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={fieldStyle()} />
-              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={fieldStyle()} />
-              <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} style={fieldStyle()}>
-                <option value="">Select Source</option>
-                {sources.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={fieldStyle()}>
-                <option value="">Select Status</option>
-                <option value="1">Active</option>
-                <option value="2">Inactive</option>
-              </select>
-              <button type="button" onClick={() => void loadInquiries()} style={buttonStyle()}>Search</button>
+              <div>
+                <label style={labelStyle()}>Date From</label>
+                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={fieldStyle()} />
+              </div>
+              <div>
+                <label style={labelStyle()}>Date To</label>
+                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={fieldStyle()} />
+              </div>
+              <div>
+                <label style={labelStyle()}>Source</label>
+                <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} style={fieldStyle()}>
+                  <option value="">Select Source</option>
+                  {sources.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle()}>Status</label>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={fieldStyle()}>
+                  <option value="">Select Status</option>
+                  <option value="1">Active</option>
+                  <option value="2">Inactive</option>
+                </select>
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end" }}>
+                <button type="button" onClick={() => void loadInquiries()} style={{ ...buttonStyle(), width: "100%" }}>Search</button>
+              </div>
             </div>
           </div>
 
@@ -315,31 +366,70 @@ export function AdmissionsPanel() {
             <div className="white-box" style={boxStyle()}>
               <h3 style={{ marginTop: 0, marginBottom: 12 }}>{editingId ? "Edit Admission Query" : "Add Admission Query"}</h3>
               <form onSubmit={submit} style={{ display: "grid", gap: 8 }}>
-                <input value={form.full_name} onChange={(e) => onChange("full_name", e.target.value)} placeholder="Name" style={fieldStyle()} />
-                <input value={form.phone} onChange={(e) => onChange("phone", e.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="Phone" maxLength={12} style={fieldStyle()} />
-                <input type="email" value={form.email} onChange={(e) => onChange("email", e.target.value)} placeholder="Email" style={fieldStyle()} />
-                <textarea value={form.address} onChange={(e) => onChange("address", e.target.value)} placeholder="Address" rows={2} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
-                <textarea value={form.description} onChange={(e) => onChange("description", e.target.value)} placeholder="Description" rows={2} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }} />
-                <input type="date" value={form.query_date} onChange={(e) => onChange("query_date", e.target.value)} style={fieldStyle()} />
-                <input type="date" value={form.next_follow_up_date} onChange={(e) => onChange("next_follow_up_date", e.target.value)} style={fieldStyle()} />
-                <input value={form.assigned} onChange={(e) => onChange("assigned", e.target.value)} placeholder="Assigned" style={fieldStyle()} />
-                <select value={form.reference} onChange={(e) => onChange("reference", e.target.value)} style={fieldStyle()}>
-                  <option value="">Reference *</option>
-                  {references.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-                <select value={form.source} onChange={(e) => onChange("source", e.target.value)} style={fieldStyle()}>
-                  <option value="">Source *</option>
-                  {sources.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-                <select value={form.school_class} onChange={(e) => onChange("school_class", e.target.value)} style={fieldStyle()}>
-                  <option value="">Class</option>
-                  {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-                <input value={form.no_of_child} onChange={(e) => onChange("no_of_child", e.target.value)} placeholder="Number of child" style={fieldStyle()} />
-                <select value={form.active_status} onChange={(e) => onChange("active_status", e.target.value)} style={fieldStyle()}>
-                  <option value="1">Active</option>
-                  <option value="2">Inactive</option>
-                </select>
+                <div>
+                  <label style={labelStyle()}>Name</label>
+                  <input value={form.full_name} onChange={(e) => onChange("full_name", e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={labelStyle()}>Phone</label>
+                  <input value={form.phone} onChange={(e) => onChange("phone", e.target.value.replace(/\D/g, "").slice(0, 12))} maxLength={12} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={labelStyle()}>Email</label>
+                  <input type="email" value={form.email} onChange={(e) => onChange("email", e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={labelStyle()}>Address</label>
+                  <textarea value={form.address} onChange={(e) => onChange("address", e.target.value)} rows={2} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", width: "100%", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={labelStyle()}>Description</label>
+                  <textarea value={form.description} onChange={(e) => onChange("description", e.target.value)} rows={2} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", width: "100%", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={labelStyle()}>Query Date *</label>
+                  <input type="date" value={form.query_date} onChange={(e) => onChange("query_date", e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={labelStyle()}>Next Follow-up Date *</label>
+                  <input type="date" value={form.next_follow_up_date} onChange={(e) => onChange("next_follow_up_date", e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={labelStyle()}>Assigned *</label>
+                  <input value={form.assigned} onChange={(e) => onChange("assigned", e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={labelStyle()}>Reference *</label>
+                  <select value={form.reference} onChange={(e) => onChange("reference", e.target.value)} style={fieldStyle()}>
+                    <option value="">Select Reference</option>
+                    {references.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle()}>Source *</label>
+                  <select value={form.source} onChange={(e) => onChange("source", e.target.value)} style={fieldStyle()}>
+                    <option value="">Select Source</option>
+                    {sources.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle()}>Class</label>
+                  <select value={form.school_class} onChange={(e) => onChange("school_class", e.target.value)} style={fieldStyle()}>
+                    <option value="">Select Class</option>
+                    {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle()}>No Of Child *</label>
+                  <input value={form.no_of_child} onChange={(e) => onChange("no_of_child", e.target.value)} style={fieldStyle()} />
+                </div>
+                <div>
+                  <label style={labelStyle()}>Status</label>
+                  <select value={form.active_status} onChange={(e) => onChange("active_status", e.target.value)} style={fieldStyle()}>
+                    <option value="1">Active</option>
+                    <option value="2">Inactive</option>
+                  </select>
+                </div>
 
                 <div style={{ display: "flex", gap: 8 }}>
                   <button type="submit" disabled={saving} style={buttonStyle()}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</button>
@@ -374,11 +464,28 @@ export function AdmissionsPanel() {
                         <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.query_date || "-"}</td>
                         <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.follow_up_date || "-"}</td>
                         <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>{item.next_follow_up_date || "-"}</td>
-                        <td style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                            <button type="button" onClick={() => router.push(`/administration/admission-query/${item.id}`)} style={buttonStyle("#0f766e")}>Add Query</button>
-                            <button type="button" onClick={() => edit(item)} style={buttonStyle("#0ea5e9")}>Edit</button>
-                            <button type="button" disabled={deletingId === item.id} onClick={() => void remove(item.id)} style={buttonStyle("#dc2626")}>Delete</button>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--line)", minWidth: 230 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6, alignItems: "center" }}>
+                            <select
+                              value={rowActions[item.id] || ""}
+                              onChange={(event) => setRowActions((prev) => ({ ...prev, [item.id]: event.target.value as "" | "add_query" | "edit" | "delete" }))}
+                              style={fieldStyle()}
+                            >
+                              <option value="">Select Action</option>
+                              <option value="add_query">Add Query</option>
+                              <option value="edit">Edit</option>
+                              <option value="delete">Delete</option>
+                            </select>
+                            <button
+                              type="button"
+                              disabled={!rowActions[item.id] || deletingId === item.id}
+                              onClick={() => void runSelectedAction(item)}
+                              style={buttonStyle(selectedActionButton(rowActions[item.id] || "").color)}
+                            >
+                              {deletingId === item.id && (rowActions[item.id] || "") === "delete"
+                                ? "Deleting..."
+                                : selectedActionButton(rowActions[item.id] || "").label}
+                            </button>
                           </div>
                         </td>
                       </tr>

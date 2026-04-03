@@ -74,6 +74,8 @@ export function RoleManagementPanel() {
   const [roleName, setRoleName] = useState("");
   const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const loadRoles = async () => {
     setLoading(true);
@@ -97,6 +99,19 @@ export function RoleManagementPanel() {
     if (!q) return roles;
     return roles.filter((row) => row.name.toLowerCase().includes(q));
   }, [roles, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRoles.length / pageSize));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const pagedRoles = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredRoles.slice(start, start + pageSize);
+  }, [filteredRoles, currentPage]);
 
   const resetForm = () => {
     setEditingRoleId(null);
@@ -136,6 +151,7 @@ export function RoleManagementPanel() {
       resetForm();
       setSuccess(isUpdate ? "Role updated successfully." : "Role created successfully.");
       await loadRoles();
+      setCurrentPage(1);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save role.";
       setError(message);
@@ -164,6 +180,7 @@ export function RoleManagementPanel() {
       if (editingRoleId === id) resetForm();
       setSuccess("Role deleted successfully.");
       await loadRoles();
+      setCurrentPage(1);
     } catch {
       setError("Unable to delete role.");
     }
@@ -219,10 +236,33 @@ export function RoleManagementPanel() {
             <h3 style={{ margin: 0 }}>Role List</h3>
             <input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
               placeholder="Search"
               style={{ ...inputStyle(), width: 280, height: 36 }}
             />
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <label htmlFor="roles-page-size" style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 600 }}>
+              Per page
+            </label>
+            <select
+              id="roles-page-size"
+              value={String(pageSize)}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              style={{ ...inputStyle(), width: 90, height: 34 }}
+            >
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
           </div>
 
           {loading ? <div style={{ color: "var(--text-muted)" }}>Loading...</div> : null}
@@ -237,7 +277,7 @@ export function RoleManagementPanel() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRoles.map((row) => (
+                {pagedRoles.map((row) => (
                   <tr key={row.id}>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.name}</td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.is_system ? "System" : "Custom"}</td>
@@ -252,9 +292,52 @@ export function RoleManagementPanel() {
                     </td>
                   </tr>
                 ))}
+                {pagedRoles.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} style={{ padding: 12, borderBottom: "1px solid var(--line)", color: "var(--text-muted)" }}>
+                      No roles found.
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           )}
+
+          {!loading && filteredRoles.length > 0 ? (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, filteredRoles.length)} of {filteredRoles.length}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  style={buttonStyle("#64748b")}
+                >
+                  Previous
+                </button>
+                {Array.from({ length: totalPages }, (_, idx) => idx + 1).map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => setCurrentPage(page)}
+                    style={buttonStyle(page === currentPage ? "var(--primary)" : "#94a3b8")}
+                  >
+                    {page}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  style={buttonStyle("#64748b")}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

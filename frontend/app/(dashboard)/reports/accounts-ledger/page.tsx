@@ -73,9 +73,20 @@ export default function AccountsLedgerReportPage() {
     }
   };
 
-  const exportCsv = () => {
+  const resetFilters = () => {
+    setFilters({ date_from: "", date_to: "", account_type: "", entry_type: "" });
+    setRows([]);
+    setTotal(0);
+    setTotalDebit("0");
+    setTotalCredit("0");
+    setBalance("0");
+    setSearched(false);
+    setError("");
+  };
+
+  const exportReport = (format: "csv" | "excel" | "pdf") => {
     const token = getAccessToken();
-    window.open(`${API_BASE_URL}/api/v1/reports/accounts-ledger/?${buildParams()}&format=csv&token=${token ?? ""}`, "_blank");
+    window.open(`${API_BASE_URL}/api/v1/reports/accounts-ledger/?${buildParams()}&format=${format}&token=${token ?? ""}`, "_blank");
   };
 
   const balanceNum = parseFloat(balance);
@@ -94,7 +105,14 @@ export default function AccountsLedgerReportPage() {
       </section>
 
       <section style={{ background: "#fff", borderRadius: 8, padding: 20, marginBottom: 20, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>
-        <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 600 }}>Select Criteria</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Select Criteria</h3>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" style={btn("#16a34a")} onClick={() => exportReport("csv")}>Export CSV</button>
+            <button type="button" style={btn("#2563eb")} onClick={() => exportReport("excel")}>Export Excel</button>
+            <button type="button" style={btn("#7c3aed")} onClick={() => exportReport("pdf")}>Export PDF</button>
+          </div>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
           <div>
             <label style={{ display: "block", fontSize: 13, marginBottom: 4 }}>Date From</label>
@@ -120,7 +138,7 @@ export default function AccountsLedgerReportPage() {
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
             <button style={btn()} onClick={() => void search()} disabled={loading}>{loading ? "Loading…" : "Search"}</button>
-            {searched && <button style={btn("#10b981")} onClick={exportCsv}>Export CSV</button>}
+            <button type="button" style={btn("#64748b")} onClick={resetFilters} disabled={loading}>Reset</button>
           </div>
         </div>
         {error && <p style={{ color: "#ef4444", marginTop: 10, fontSize: 13 }}>{error}</p>}

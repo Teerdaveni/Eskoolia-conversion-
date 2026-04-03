@@ -4,7 +4,8 @@ from django.db import transaction
 from django.db.models import Q
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser, JSONParser
 from rest_framework.response import Response
 from apps.hr.models import Staff
 from apps.users.models import User
@@ -108,6 +109,63 @@ class ClassSubjectAssignmentViewSet(TenantScopedModelViewSet):
             },
         )
 
+    def _normalized_errors(self, serializer_errors):
+        if isinstance(serializer_errors, dict):
+            if "message" in serializer_errors:
+                return {}, serializer_errors.get("message")
+            cleaned = {}
+            for key, value in serializer_errors.items():
+                if isinstance(value, list):
+                    cleaned[key] = [str(item) for item in value]
+                else:
+                    cleaned[key] = [str(value)]
+            return cleaned, "Validation failed"
+        return {}, "Validation failed"
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_create(serializer)
+        return Response(
+            {
+                "success": True,
+                "message": "Subject assigned successfully",
+                "data": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_update(serializer)
+        return Response(
+            {
+                "success": True,
+                "message": "Subject assigned successfully",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
 
 class ClassTeacherAssignmentViewSet(TenantScopedModelViewSet):
     model = ClassTeacherAssignment
@@ -125,6 +183,63 @@ class ClassTeacherAssignmentViewSet(TenantScopedModelViewSet):
                 "academic_year_id": "academic_year_id",
             },
         )
+
+    def _normalized_errors(self, serializer_errors):
+        if isinstance(serializer_errors, dict):
+            if "message" in serializer_errors:
+                return {}, serializer_errors.get("message")
+            cleaned = {}
+            for key, value in serializer_errors.items():
+                if isinstance(value, list):
+                    cleaned[key] = [str(item) for item in value]
+                else:
+                    cleaned[key] = [str(value)]
+            return cleaned, "Validation failed"
+        return {}, "Validation failed"
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_create(serializer)
+        return Response(
+            {
+                "success": True,
+                "message": "Class teacher assigned successfully",
+                "data": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_update(serializer)
+        return Response(
+            {
+                "success": True,
+                "message": "Class teacher assigned successfully",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
 
 
 class ClassRoutineSlotViewSet(TenantScopedModelViewSet):
@@ -147,6 +262,78 @@ class ClassRoutineSlotViewSet(TenantScopedModelViewSet):
             },
         )
         return queryset.order_by("day", "start_time")
+
+    def _normalized_errors(self, serializer_errors):
+        if isinstance(serializer_errors, dict):
+            message = serializer_errors.get("message")
+            if isinstance(message, list) and message:
+                return {}, str(message[0])
+            if isinstance(message, str) and message:
+                return {}, message
+
+            cleaned = {}
+            for key, value in serializer_errors.items():
+                if isinstance(value, list):
+                    cleaned[key] = [str(item) for item in value]
+                else:
+                    cleaned[key] = [str(value)]
+            return cleaned, "Validation failed"
+        return {}, "Validation failed"
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_create(serializer)
+        return Response(
+            {
+                "success": True,
+                "message": "Class routine saved successfully",
+                "data": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_update(serializer)
+        return Response(
+            {
+                "success": True,
+                "message": "Class routine updated successfully",
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(
+            {
+                "success": True,
+                "message": "Class routine deleted successfully",
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ClassOptionalSubjectSetupViewSet(TenantScopedModelViewSet):
@@ -176,6 +363,7 @@ class OptionalSubjectAssignmentViewSet(TenantScopedModelViewSet):
 class HomeworkViewSet(TenantScopedModelViewSet):
     model = Homework
     serializer_class = HomeworkSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     permission_codes = {
         "list": "academics.homework_list.view",
         "retrieve": "academics.homework_list.view",
@@ -213,6 +401,53 @@ class HomeworkViewSet(TenantScopedModelViewSet):
                 "subject_id": "subject_id_ref_id",
             },
         )
+
+    def _normalized_errors(self, serializer_errors):
+        if isinstance(serializer_errors, dict):
+            message = serializer_errors.get("message")
+            if isinstance(message, list) and message:
+                return {}, str(message[0])
+            if isinstance(message, str) and message:
+                return {}, message
+
+            cleaned = {}
+            for key, value in serializer_errors.items():
+                if isinstance(value, list):
+                    cleaned[key] = [str(item) for item in value]
+                else:
+                    cleaned[key] = [str(value)]
+            return cleaned, "Validation failed"
+        return {}, "Validation failed"
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_create(serializer)
+        return Response({"success": True, "message": "Homework created successfully", "data": serializer.data}, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_update(serializer)
+        return Response({"success": True, "message": "Homework updated successfully", "data": serializer.data}, status=status.HTTP_200_OK)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         school = self.request.user.school or getattr(self.request, "school", None)
@@ -255,6 +490,7 @@ class HomeworkSubmissionViewSet(TenantScopedModelViewSet):
 class UploadedContentViewSet(TenantScopedModelViewSet):
     model = UploadedContent
     serializer_class = UploadedContentSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     permission_codes = {"*": "academics.upload_content.view"}
 
     def get_queryset(self):
@@ -267,20 +503,92 @@ class UploadedContentViewSet(TenantScopedModelViewSet):
         else:
             base_qs = qs.none()
 
-        return self.filter_queryset_by_params(
-            base_qs,
-            {
-                "class": "class_id_ref_id",
-                "class_id": "class_id_ref_id",
-                "section": "section_id_ref_id",
-                "section_id": "section_id_ref_id",
-                "content_type": "content_type",
-            },
-        )
+        queryset = base_qs
+        class_id = self.request.query_params.get("class_id") or self.request.query_params.get("class")
+        section_id = self.request.query_params.get("section_id") or self.request.query_params.get("section")
+        content_type = self.request.query_params.get("content_type")
+
+        if class_id not in (None, ""):
+            queryset = queryset.filter(Q(class_id_ref_id=class_id) | Q(available_for_all_classes=True))
+
+        if section_id not in (None, ""):
+            # Include class-level rows (no specific section) so section searches can still see them.
+            queryset = queryset.filter(Q(section_id_ref_id=section_id) | Q(section_id_ref__isnull=True))
+
+        if content_type not in (None, ""):
+            queryset = queryset.filter(content_type=content_type)
+
+        return queryset
 
     def perform_create(self, serializer):
         school = self.request.user.school or getattr(self.request, "school", None)
         serializer.save(school=school, created_by=self.request.user)
+
+    def _normalized_errors(self, serializer_errors):
+        if isinstance(serializer_errors, dict):
+            message = serializer_errors.get("message")
+            if isinstance(message, list) and message:
+                return {}, str(message[0])
+            if isinstance(message, str) and message:
+                nested = serializer_errors.get("errors")
+                cleaned = {}
+                if isinstance(nested, dict):
+                    for key, value in nested.items():
+                        if isinstance(value, list):
+                            cleaned[key] = [str(item) for item in value]
+                        else:
+                            cleaned[key] = [str(value)]
+                return cleaned, message
+
+            cleaned = {}
+            for key, value in serializer_errors.items():
+                if isinstance(value, list):
+                    cleaned[key] = [str(item) for item in value]
+                else:
+                    cleaned[key] = [str(value)]
+            return cleaned, "Validation failed"
+        return {}, "Validation failed"
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_create(serializer)
+        return Response(
+            {"success": True, "message": "Content uploaded successfully.", "data": serializer.data},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if not serializer.is_valid():
+            errors, message = self._normalized_errors(serializer.errors)
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_update(serializer)
+        return Response(
+            {"success": True, "message": "Content updated successfully.", "data": serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response({"success": True, "message": "Content deleted successfully."}, status=status.HTTP_200_OK)
 
 
 class LessonViewSet(TenantScopedModelViewSet):
@@ -419,10 +727,32 @@ class LessonTopicViewSet(TenantScopedModelViewSet):
             },
         )
 
+    def _validation_response(self, serializer_errors):
+        if isinstance(serializer_errors, dict):
+            errors = {}
+            message = "Validation failed"
+            for key, value in serializer_errors.items():
+                if key == "message":
+                    if isinstance(value, list) and value:
+                        message = str(value[0])
+                    elif isinstance(value, str) and value:
+                        message = value
+                    continue
+                if isinstance(value, list):
+                    errors[key] = [str(item) for item in value]
+                else:
+                    errors[key] = [str(value)]
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return payload
+        return {"success": False, "message": "Validation failed"}
+
     def create(self, request, *args, **kwargs):
         if isinstance(request.data.get("topic"), list):
-            serializer = LessonTopicGroupCreateSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
+            serializer = LessonTopicGroupCreateSerializer(data=request.data, context=self.get_serializer_context())
+            if not serializer.is_valid():
+                return Response(self._validation_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
             data = serializer.validated_data
             school = request.user.school or getattr(request, "school", None)
             with transaction.atomic():
@@ -451,8 +781,13 @@ class LessonTopicViewSet(TenantScopedModelViewSet):
                         updated_by=request.user,
                     )
             output = self.get_serializer(lesson_topic)
-            return Response(output.data, status=status.HTTP_201_CREATED)
-        return super().create(request, *args, **kwargs)
+            return Response({"success": True, "message": "Topic group saved successfully.", "data": output.data}, status=status.HTTP_201_CREATED)
+
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(self._validation_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
+        self.perform_create(serializer)
+        return Response({"success": True, "message": "Topic saved successfully.", "data": serializer.data}, status=status.HTTP_201_CREATED)
 
     def perform_create(self, serializer):
         school = self.request.user.school or getattr(self.request, "school", None)
@@ -470,8 +805,11 @@ class LessonTopicViewSet(TenantScopedModelViewSet):
             instance = self.get_queryset().get(pk=group_id)
         except LessonTopic.DoesNotExist:
             return Response({"detail": "Topic group not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if LessonPlanTopic.objects.filter(topic__topic=instance).exists() or LessonPlanner.objects.filter(Q(topic=instance.topics.first()) | Q(topic_detail__topic=instance)).exists():
+            return Response({"success": False, "message": "Cannot delete topic as it is already in use"}, status=status.HTTP_400_BAD_REQUEST)
         instance.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({"success": True, "message": "Topic group deleted successfully."}, status=status.HTTP_200_OK)
 
 
 class LessonTopicDetailViewSet(TenantScopedModelViewSet):
@@ -502,6 +840,13 @@ class LessonTopicDetailViewSet(TenantScopedModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if LessonPlanTopic.objects.filter(topic=instance).exists() or LessonPlanner.objects.filter(Q(topic=instance) | Q(topic_detail=instance)).exists():
+            return Response({"success": False, "message": "Cannot delete topic as it is already in use"}, status=status.HTTP_400_BAD_REQUEST)
+        self.perform_destroy(instance)
+        return Response({"success": True, "message": "Topic deleted successfully."}, status=status.HTTP_200_OK)
 
 
 class LessonPlannerViewSet(TenantScopedModelViewSet):
@@ -542,9 +887,31 @@ class LessonPlannerViewSet(TenantScopedModelViewSet):
             },
         )
 
+    def _validation_response(self, serializer_errors):
+        if isinstance(serializer_errors, dict):
+            errors = {}
+            message = "Validation failed"
+            for key, value in serializer_errors.items():
+                if key == "message":
+                    if isinstance(value, list) and value:
+                        message = str(value[0])
+                    elif isinstance(value, str) and value:
+                        message = value
+                    continue
+                if isinstance(value, list):
+                    errors[key] = [str(item) for item in value]
+                else:
+                    errors[key] = [str(value)]
+            payload = {"success": False, "message": message}
+            if errors:
+                payload["errors"] = errors
+            return payload
+        return {"success": False, "message": "Validation failed"}
+
     def create(self, request, *args, **kwargs):
-        serializer = LessonPlannerCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        serializer = LessonPlannerCreateSerializer(data=request.data, context=self.get_serializer_context())
+        if not serializer.is_valid():
+            return Response(self._validation_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
         data = serializer.validated_data
         school = request.user.school or getattr(request, "school", None)
         lesson = data["lesson"]
@@ -598,7 +965,7 @@ class LessonPlannerViewSet(TenantScopedModelViewSet):
                 lesson_planner.sub_topic = sub_topic_value if isinstance(sub_topic_value, str) else ""
                 lesson_planner.save(update_fields=["topic", "topic_detail", "sub_topic", "updated_at"])
         output = self.get_serializer(lesson_planner)
-        return Response(output.data, status=status.HTTP_201_CREATED)
+        return Response({"success": True, "message": "Lesson planner saved successfully.", "data": output.data}, status=status.HTTP_201_CREATED)
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
@@ -606,8 +973,9 @@ class LessonPlannerViewSet(TenantScopedModelViewSet):
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
-        serializer = LessonPlannerCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        serializer = LessonPlannerCreateSerializer(data=request.data, context=self.get_serializer_context())
+        if not serializer.is_valid():
+            return Response(self._validation_response(serializer.errors), status=status.HTTP_400_BAD_REQUEST)
         data = serializer.validated_data
         lesson = data["lesson"]
         topic_value = data.get("topic")
@@ -661,7 +1029,7 @@ class LessonPlannerViewSet(TenantScopedModelViewSet):
                 instance.sub_topic = sub_topic_value if isinstance(sub_topic_value, str) else ""
                 instance.save(update_fields=["topic", "topic_detail", "sub_topic", "updated_at"])
         output = self.get_serializer(instance)
-        return Response(output.data, status=status.HTTP_200_OK)
+        return Response({"success": True, "message": "Lesson planner updated successfully.", "data": output.data}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"], url_path="overview")
     def overview(self, request):

@@ -13,6 +13,16 @@ type CriteriaResponse = {
   sections: SectionOption[];
 };
 
+type StudentOption = {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  admission_no?: string;
+  roll_no?: string;
+  current_class?: number | null;
+  current_section?: number | null;
+};
+
 type LoginUserRow = {
   user_id: number;
   username: string;
@@ -42,6 +52,7 @@ export function LoginPermissionPanel() {
   const [roles, setRoles] = useState<Option[]>([]);
   const [classes, setClasses] = useState<Option[]>([]);
   const [sections, setSections] = useState<SectionOption[]>([]);
+  const [studentRows, setStudentRows] = useState<StudentOption[]>([]);
 
   const [roleId, setRoleId] = useState("");
   const [classId, setClassId] = useState("");
@@ -70,14 +81,61 @@ export function LoginPermissionPanel() {
     return sections.filter((s) => String(s.class_id) === classId);
   }, [sections, classId]);
 
+  const studentClassIds = useMemo(() => {
+    return new Set(
+      studentRows
+        .map((row) => row.current_class)
+        .filter((value): value is number => typeof value === "number" && value > 0),
+    );
+  }, [studentRows]);
+
+  const studentSectionIds = useMemo(() => {
+    if (!classId) {
+      return new Set(
+        studentRows
+          .map((row) => row.current_section)
+          .filter((value): value is number => typeof value === "number" && value > 0),
+      );
+    }
+
+    const selectedClassId = Number(classId);
+    return new Set(
+      studentRows
+        .filter((row) => row.current_class === selectedClassId)
+        .map((row) => row.current_section)
+        .filter((value): value is number => typeof value === "number" && value > 0),
+    );
+  }, [studentRows, classId]);
+
+  const studentClasses = useMemo(() => {
+    return classes.filter((item) => studentClassIds.has(item.id));
+  }, [classes, studentClassIds]);
+
+  const studentFilteredSections = useMemo(() => {
+    return filteredSections.filter((item) => studentSectionIds.has(item.id));
+  }, [filteredSections, studentSectionIds]);
+
+  const studentOptions = useMemo(() => {
+    return studentRows.filter((row) => {
+      if (!classId || !sectionId) return false;
+      if (row.current_class !== Number(classId)) return false;
+      if (row.current_section !== Number(sectionId)) return false;
+      return true;
+    });
+  }, [studentRows, classId, sectionId]);
+
   const loadCriteria = async () => {
     setLoadingCriteria(true);
     setError("");
     try {
-      const payload = await apiRequestWithRefresh<CriteriaResponse>("/api/v1/access-control/login-access-control/");
+      const [payload, studentPayload] = await Promise.all([
+        apiRequestWithRefresh<CriteriaResponse>("/api/v1/access-control/login-access-control/"),
+        apiRequestWithRefresh<{ results?: StudentOption[] }>("/api/v1/students/students/?is_active=true&page_size=1000"),
+      ]);
       setRoles(payload.roles || []);
       setClasses(payload.classes || []);
       setSections(payload.sections || []);
+      setStudentRows(studentPayload.results || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load criteria.");
     } finally {
@@ -91,7 +149,12 @@ export function LoginPermissionPanel() {
 
   useEffect(() => {
     setSectionId("");
+    setName("");
   }, [classId]);
+
+  useEffect(() => {
+    setName("");
+  }, [sectionId]);
 
   const searchUsers = async () => {
     if (!roleId) {
@@ -112,7 +175,11 @@ export function LoginPermissionPanel() {
       query.set("role", roleId);
       if (classId) query.set("class", classId);
       if (sectionId) query.set("section", sectionId);
-      if (name.trim()) query.set("name", name.trim());
+      if (isStudentRole && name.trim()) {
+        query.set("admission_no", name.trim());
+      } else if (name.trim()) {
+        query.set("name", name.trim());
+      }
       if (admissionNo.trim()) query.set("admission_no", admissionNo.trim());
       if (rollNo.trim()) query.set("roll_no", rollNo.trim());
 
@@ -225,7 +292,7 @@ export function LoginPermissionPanel() {
                 <label style={{ display: "block", marginBottom: 4 }}>Class *</label>
                 <select value={classId} onChange={(e) => setClassId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={loading}>
                   <option value="">Select class</option>
-                  {classes.map((item) => (
+                    {studentClasses.map((item) => (
                     <option key={item.id} value={item.id}>{item.name}</option>
                   ))}
                 </select>
@@ -235,7 +302,7 @@ export function LoginPermissionPanel() {
                 <label style={{ display: "block", marginBottom: 4 }}>Section</label>
                 <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ width: "100%", height: 36 }} disabled={loading}>
                   <option value="">Select section</option>
-                  {filteredSections.map((item) => (
+                  {studentFilteredSections.map((item) => (
                     <option key={item.id} value={item.id}>{item.name}</option>
                   ))}
                 </select>
@@ -243,7 +310,24 @@ export function LoginPermissionPanel() {
 
               <div>
                 <label style={{ display: "block", marginBottom: 4 }}>Name</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Student name" style={{ width: "100%", height: 36, boxSizing: "border-box" }} />
+                <select
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  style={{ width: "100%", height: 36, boxSizing: "border-box" }}
+                  disabled={!classId || !sectionId || loading}
+                >
+                  <option value="">Select student</option>
+                  {studentOptions.map((student) => {
+                    const studentName = `${student.first_name || ""} ${student.last_name || ""}`.trim() || `Student ${student.id}`;
+                    const admissionNo = student.admission_no ? ` (${student.admission_no})` : "";
+                    const rollNo = student.roll_no ? ` [Roll: ${student.roll_no}]` : "";
+                    return (
+                      <option key={student.id} value={student.admission_no || String(student.id)}>
+                        {studentName}{admissionNo}{rollNo}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
 
               <div>
@@ -305,7 +389,7 @@ export function LoginPermissionPanel() {
               </tr>
             )}
             {!loading && rows.map((row) => (
-              <tr key={row.user_id}>
+              <tr key={row.user_id ?? row.admission_no ?? row.username}>
                 {isStudentRole ? (
                   <>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.admission_no || "-"}</td>
@@ -315,30 +399,38 @@ export function LoginPermissionPanel() {
                       {row.class_name ? `${row.class_name}${row.section_name ? ` (${row.section_name})` : ""}` : "-"}
                     </td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                      <input
-                        type="checkbox"
-                        checked={row.access_status}
-                        disabled={actionType === "toggle" && actionUserId === row.user_id}
-                        onChange={(event) => void toggle(row.user_id, event.target.checked)}
-                      />
+                      {row.user_id ? (
+                        <input
+                          type="checkbox"
+                          checked={row.access_status}
+                          disabled={actionType === "toggle" && actionUserId === row.user_id}
+                          onChange={(event) => void toggle(row.user_id, event.target.checked)}
+                        />
+                      ) : (
+                        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Not linked</span>
+                      )}
                     </td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                        <input
-                          type="text"
-                          value={passwordMap[row.user_id] || ""}
-                          onChange={(event) => setPasswordMap((prev) => ({ ...prev, [row.user_id]: event.target.value }))}
-                          placeholder="New password"
-                          style={{ height: 30, minWidth: 120 }}
-                        />
-                        <button type="button" onClick={() => void resetPassword(row.user_id, false)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
-                          Update
-                        </button>
-                        <button type="button" onClick={() => void resetPassword(row.user_id, true)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
-                          Default
-                        </button>
-                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Default = 123456</span>
-                      </div>
+                      {row.user_id ? (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                          <input
+                            type="text"
+                            value={passwordMap[row.user_id] || ""}
+                            onChange={(event) => setPasswordMap((prev) => ({ ...prev, [row.user_id]: event.target.value }))}
+                            placeholder="New password"
+                            style={{ height: 30, minWidth: 120 }}
+                          />
+                          <button type="button" onClick={() => void resetPassword(row.user_id, false)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
+                            Update
+                          </button>
+                          <button type="button" onClick={() => void resetPassword(row.user_id, true)} style={{ border: "1px solid var(--line)", background: "var(--surface)", borderRadius: 6, padding: "5px 8px" }}>
+                            Default
+                          </button>
+                          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Default = 123456</span>
+                        </div>
+                      ) : (
+                        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Not linked</span>
+                      )}
                     </td>
                     <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
                       {row.parent_user_id ? (

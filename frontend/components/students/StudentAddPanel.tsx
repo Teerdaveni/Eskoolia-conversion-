@@ -33,7 +33,7 @@ type StudentCreatePayload = {
   admission_no: string;
   roll_no?: string;
   first_name: string;
-  last_name?: string;
+  last_name: string;
   date_of_birth?: string;
   gender: string;
   blood_group?: string;
@@ -225,8 +225,8 @@ export function StudentAddPanel() {
     event.preventDefault();
     setSuccess("");
 
-    if (!admissionNo.trim() || !firstName.trim() || !gender) {
-      setError("Admission No, First Name, and Gender are required.");
+    if (!admissionNo.trim() || !firstName.trim() || !lastName.trim() || !gender) {
+      setError("Admission No, First Name, Last Name, and Gender are required.");
       return;
     }
 
@@ -237,7 +237,7 @@ export function StudentAddPanel() {
         admission_no: admissionNo.trim(),
         roll_no: rollNo.trim() || undefined,
         first_name: firstName.trim(),
-        last_name: lastName.trim() || undefined,
+        last_name: lastName.trim(),
         date_of_birth: dateOfBirth || undefined,
         gender,
         blood_group: bloodGroup.trim() || undefined,
@@ -304,7 +304,7 @@ export function StudentAddPanel() {
                   <input value={firstName} onChange={(e) => setFirstName(e.target.value)} style={fieldStyle()} />
                 </div>
                 <div>
-                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Last Name</label>
+                  <label style={{ display: "block", marginBottom: 6, fontSize: 13 }}>Last Name *</label>
                   <input value={lastName} onChange={(e) => setLastName(e.target.value)} style={fieldStyle()} />
                 </div>
 

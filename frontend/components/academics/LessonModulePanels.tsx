@@ -75,6 +75,63 @@ type WeeklyPlanner = {
 
 type ApiList<T> = T[] | { results?: T[] };
 
+type ApiErrorPayload = {
+  success?: boolean;
+  message?: string;
+  detail?: string;
+  errors?: Record<string, unknown>;
+};
+
+class ApiError extends Error {
+  status: number;
+  payload: ApiErrorPayload;
+
+  constructor(status: number, payload: ApiErrorPayload) {
+    super(payload.message || payload.detail || `Request failed with status ${status}`);
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+async function readJsonResponse(response: Response): Promise<ApiErrorPayload | null> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as ApiErrorPayload;
+  } catch {
+    return { message: text };
+  }
+}
+
+function toFieldErrors(errors: Record<string, unknown> | undefined): Record<string, string> {
+  if (!errors) return {};
+  const fieldErrors: Record<string, string> = {};
+  for (const [key, value] of Object.entries(errors)) {
+    if (Array.isArray(value)) {
+      const first = value[0];
+      if (typeof first === "string") {
+        fieldErrors[key] = first;
+      }
+    } else if (typeof value === "string") {
+      fieldErrors[key] = value;
+    }
+  }
+  return fieldErrors;
+}
+
+function getApiError(error: unknown): { message: string; fieldErrors: Record<string, string> } {
+  if (error instanceof ApiError) {
+    return {
+      message: error.payload.message || error.payload.detail || error.message,
+      fieldErrors: toFieldErrors(error.payload.errors),
+    };
+  }
+  if (error instanceof Error) {
+    return { message: error.message, fieldErrors: {} };
+  }
+  return { message: "Request failed.", fieldErrors: {} };
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   const refresh = getRefreshToken();
   if (!refresh) return null;
@@ -120,7 +177,8 @@ async function apiGet<T>(path: string): Promise<T> {
   }
   
   if (!response.ok) {
-    throw new Error(`GET failed ${response.status}`);
+    const payload = await readJsonResponse(response);
+    throw new ApiError(response.status, payload || {});
   }
   return (await response.json()) as T;
 }
@@ -144,7 +202,8 @@ async function apiPost<T>(path: string, payload: unknown): Promise<T> {
   }
   
   if (!response.ok) {
-    throw new Error(`POST failed ${response.status}`);
+    const payload = await readJsonResponse(response);
+    throw new ApiError(response.status, payload || {});
   }
   return (await response.json()) as T;
 }
@@ -168,7 +227,8 @@ async function apiPut<T>(path: string, payload: unknown): Promise<T> {
   }
   
   if (!response.ok) {
-    throw new Error(`PUT failed ${response.status}`);
+    const payload = await readJsonResponse(response);
+    throw new ApiError(response.status, payload || {});
   }
   return (await response.json()) as T;
 }
@@ -192,7 +252,8 @@ async function apiPatch<T>(path: string, payload: unknown): Promise<T> {
   }
   
   if (!response.ok) {
-    throw new Error(`PATCH failed ${response.status}`);
+    const payload = await readJsonResponse(response);
+    throw new ApiError(response.status, payload || {});
   }
   return (await response.json()) as T;
 }
@@ -214,7 +275,8 @@ async function apiDelete(path: string): Promise<void> {
   }
   
   if (!response.ok) {
-    throw new Error(`DELETE failed ${response.status}`);
+    const payload = await readJsonResponse(response);
+    throw new ApiError(response.status, payload || {});
   }
 }
 
@@ -537,6 +599,7 @@ export function TopicPagePanel() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [topicGroups, setTopicGroups] = useState<LessonTopicGroup[]>([]);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   const [academicYearId, setAcademicYearId] = useState("");
@@ -579,9 +642,16 @@ export function TopicPagePanel() {
     });
   }, [lessons, classId, sectionId, subjectId]);
 
+  const topicLines = useMemo(
+    () => topicText.split("\n").map((line) => line.trim()).filter(Boolean),
+    [topicText],
+  );
+
+  const isTopicFormValid = Boolean(classId && sectionId && subjectId && lessonId && topicLines.length > 0 && !saving);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    const topicLines = topicText.split("\n").map((line) => line.trim()).filter(Boolean);
+    setFieldErrors({});
     if (!classId || !sectionId || !subjectId || !lessonId || topicLines.length === 0) {
       setError("Class, section, subject, lesson and topics are required.");
       return;
@@ -598,9 +668,12 @@ export function TopicPagePanel() {
         topic: topicLines,
       });
       setTopicText("");
+      setFieldErrors({});
       await loadTopicGroups();
-    } catch {
-      setError("Unable to save topics.");
+    } catch (err) {
+      const apiError = getApiError(err);
+      setError(apiError.message || "Unable to save topics.");
+      setFieldErrors(apiError.fieldErrors);
     } finally {
       setSaving(false);
     }
@@ -649,23 +722,23 @@ export function TopicPagePanel() {
 
       <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
         <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 8 }}>
-          <select value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} style={fieldStyle()}>
+          <select value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.academic_year_id ? "#dc2626" : undefined }}>
             <option value="">Academic year (optional)</option>
             {years.map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}
           </select>
-          <select value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(""); }} style={fieldStyle()}>
+          <select value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(""); }} style={{ ...fieldStyle(), borderColor: fieldErrors.class_id ? "#dc2626" : undefined }}>
             <option value="">Class</option>
             {classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}
           </select>
-          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={fieldStyle()}>
+          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.section_id ? "#dc2626" : undefined }}>
             <option value="">Section</option>
             {filteredSections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
           </select>
-          <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} style={fieldStyle()}>
+          <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.subject_id ? "#dc2626" : undefined }}>
             <option value="">Subject</option>
             {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
           </select>
-          <select value={lessonId} onChange={(e) => setLessonId(e.target.value)} style={fieldStyle()}>
+          <select value={lessonId} onChange={(e) => setLessonId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.lesson_id ? "#dc2626" : undefined }}>
             <option value="">Lesson</option>
             {filteredLessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.lesson_title}</option>)}
           </select>
@@ -675,10 +748,15 @@ export function TopicPagePanel() {
             onChange={(e) => setTopicText(e.target.value)}
             rows={4}
             placeholder="One topic title per line"
-            style={{ gridColumn: "1 / -1", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+            style={{ gridColumn: "1 / -1", border: `1px solid ${fieldErrors.topic ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "8px 10px" }}
           />
+          {fieldErrors.class_id && <div style={{ color: "#dc2626", fontSize: 12 }}>Class: {fieldErrors.class_id}</div>}
+          {fieldErrors.section_id && <div style={{ color: "#dc2626", fontSize: 12 }}>Section: {fieldErrors.section_id}</div>}
+          {fieldErrors.subject_id && <div style={{ color: "#dc2626", fontSize: 12 }}>Subject: {fieldErrors.subject_id}</div>}
+          {fieldErrors.lesson_id && <div style={{ color: "#dc2626", fontSize: 12 }}>Lesson: {fieldErrors.lesson_id}</div>}
+          {fieldErrors.topic && <div style={{ color: "#dc2626", fontSize: 12, gridColumn: "1 / -1" }}>Topics: {fieldErrors.topic}</div>}
           <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end" }}>
-            <button type="submit" disabled={saving} style={buttonStyle()}>{saving ? "Saving..." : "Save Topics"}</button>
+            <button type="submit" disabled={!isTopicFormValid} style={{ ...buttonStyle(), opacity: isTopicFormValid ? 1 : 0.6, cursor: isTopicFormValid ? "pointer" : "not-allowed" }}>{saving ? "Saving..." : "Save Topics"}</button>
           </div>
         </form>
         {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}
@@ -747,6 +825,7 @@ export function LessonPlannerPagePanel() {
   const [overviewItems, setOverviewItems] = useState<PlannerRow[]>([]);
   const [weekly, setWeekly] = useState<WeeklyPlanner | null>(null);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   const [academicYearId, setAcademicYearId] = useState("");
@@ -756,7 +835,6 @@ export function LessonPlannerPagePanel() {
   const [subjectId, setSubjectId] = useState("");
   const [lessonId, setLessonId] = useState("");
   const [lessonDate, setLessonDate] = useState("");
-  const [routineId, setRoutineId] = useState("");
   const [classPeriodId, setClassPeriodId] = useState("");
   const [teacherId, setTeacherId] = useState("");
   const [topicId, setTopicId] = useState("");
@@ -783,6 +861,16 @@ export function LessonPlannerPagePanel() {
       return true;
     });
   }, [lessons, classId, sectionId, subjectId]);
+
+  const filteredTopicDetails = useMemo(() => {
+    if (!lessonId) return [];
+    const selectedLessonId = Number(lessonId);
+    return topicDetails.filter((topic) => topic.lesson === selectedLessonId);
+  }, [lessonId, topicDetails]);
+
+  const plannerTopicLines = useMemo(() => customTopicIds.split(",").map((value) => value.trim()).filter(Boolean), [customTopicIds]);
+  const plannerSubTopicLines = useMemo(() => customSubTopics.split("\n").map((value) => value.trim()), [customSubTopics]);
+  const isPlannerFormValid = Boolean(classId && sectionId && subjectId && lessonId && lessonDate && !saving && (customizeMode ? plannerTopicLines.length > 0 : topicId));
 
   const loadLessons = async () => {
     const data = await apiGet<ApiList<Lesson>>("/api/v1/academics/lessons/");
@@ -829,6 +917,7 @@ export function LessonPlannerPagePanel() {
   const resetPlannerForm = () => {
     setEditingPlannerId(null);
     setCustomizeMode(false);
+    setFieldErrors({});
     setClassPeriodId("");
     setTopicId("");
     setSubTopic("");
@@ -845,7 +934,6 @@ export function LessonPlannerPagePanel() {
     setSubjectId(String(row.subject_id));
     setLessonId(String(row.lesson_detail_id));
     setLessonDate(row.lesson_date);
-    setRoutineId(row.routine_id ? String(row.routine_id) : "");
     setClassPeriodId(row.class_period_id ? String(row.class_period_id) : "");
     setTeacherId(row.teacher_id ? String(row.teacher_id) : "");
 
@@ -866,6 +954,7 @@ export function LessonPlannerPagePanel() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    setFieldErrors({});
     if (!classId || !sectionId || !subjectId || !lessonId || !lessonDate) {
       setError("Class, section, subject, lesson and lesson date are required.");
       return;
@@ -884,20 +973,13 @@ export function LessonPlannerPagePanel() {
         class_id: Number(classId),
         section_id: Number(sectionId),
         lesson_date: lessonDate,
-        routine_id: routineId ? Number(routineId) : undefined,
         class_period_id: classPeriodId ? Number(classPeriodId) : undefined,
       };
 
       if (customizeMode) {
         payload.customize = "customize";
-        payload.topic = customTopicIds
-          .split(",")
-          .map((value) => Number(value.trim()))
-          .filter((value) => !Number.isNaN(value) && value > 0);
-        payload.sub_topic = customSubTopics
-          .split("\n")
-          .map((value) => value.trim())
-          .filter(Boolean);
+        payload.topic = plannerTopicLines.map((value) => Number(value)).filter((value) => !Number.isNaN(value) && value > 0);
+        payload.sub_topic = plannerSubTopicLines;
       } else {
         payload.topic = Number(topicId);
         payload.sub_topic = subTopic;
@@ -911,8 +993,10 @@ export function LessonPlannerPagePanel() {
 
       resetPlannerForm();
       await Promise.all([loadPlanners(), loadOverview(), loadWeekly()]);
-    } catch {
-      setError("Unable to save lesson planner row.");
+    } catch (err) {
+      const apiError = getApiError(err);
+      setError(apiError.message || "Unable to save lesson planner row.");
+      setFieldErrors(apiError.fieldErrors);
     } finally {
       setSaving(false);
     }
@@ -946,39 +1030,38 @@ export function LessonPlannerPagePanel() {
 
       <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
         <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
-          <select value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} style={fieldStyle()}>
+          <select value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.academic_year_id ? "#dc2626" : undefined }}>
             <option value="">Academic year (optional)</option>
             {years.map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}
           </select>
-          <input value={day} onChange={(e) => setDay(e.target.value)} type="number" min={1} max={7} placeholder="Day ID" style={fieldStyle()} />
-          <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} style={fieldStyle()}>
+          <input value={day} onChange={(e) => setDay(e.target.value)} type="number" min={1} max={7} placeholder="Day ID" style={{ ...fieldStyle(), borderColor: fieldErrors.day ? "#dc2626" : undefined }} />
+          <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.teacher_id ? "#dc2626" : undefined }}>
             <option value="">Select teacher</option>
             {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.full_name}</option>)}
           </select>
-          <select value={classPeriodId} onChange={(e) => setClassPeriodId(e.target.value)} style={fieldStyle()}>
+          <select value={classPeriodId} onChange={(e) => setClassPeriodId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.class_period_id ? "#dc2626" : undefined }}>
             <option value="">Select period</option>
             {classPeriods.map((period) => <option key={period.id} value={period.id}>{period.period} ({period.start_time} - {period.end_time})</option>)}
           </select>
 
-          <select value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(""); }} style={fieldStyle()}>
+          <select value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(""); }} style={{ ...fieldStyle(), borderColor: fieldErrors.class_id ? "#dc2626" : undefined }}>
             <option value="">Class</option>
             {classes.map((schoolClass) => <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>)}
           </select>
-          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={fieldStyle()}>
+          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.section_id ? "#dc2626" : undefined }}>
             <option value="">Section</option>
             {filteredSections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
           </select>
-          <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} style={fieldStyle()}>
+          <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.subject_id ? "#dc2626" : undefined }}>
             <option value="">Subject</option>
             {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
           </select>
-          <select value={lessonId} onChange={(e) => setLessonId(e.target.value)} style={fieldStyle()}>
+          <select value={lessonId} onChange={(e) => setLessonId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.lesson ? "#dc2626" : undefined }}>
             <option value="">Lesson</option>
             {filteredLessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.lesson_title}</option>)}
           </select>
 
-          <input value={lessonDate} onChange={(e) => setLessonDate(e.target.value)} type="date" style={fieldStyle()} />
-          <input value={routineId} onChange={(e) => setRoutineId(e.target.value)} type="number" placeholder="Routine ID" style={fieldStyle()} />
+          <input value={lessonDate} onChange={(e) => setLessonDate(e.target.value)} type="date" style={{ ...fieldStyle(), borderColor: fieldErrors.lesson_date ? "#dc2626" : undefined }} />
 
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
             <input type="checkbox" checked={customizeMode} onChange={(e) => setCustomizeMode(e.target.checked)} />
@@ -987,11 +1070,11 @@ export function LessonPlannerPagePanel() {
 
           {!customizeMode && (
             <>
-              <select value={topicId} onChange={(e) => setTopicId(e.target.value)} style={fieldStyle()}>
+              <select value={topicId} onChange={(e) => setTopicId(e.target.value)} style={{ ...fieldStyle(), borderColor: fieldErrors.topic ? "#dc2626" : undefined }}>
                 <option value="">Topic detail</option>
-                {topicDetails.map((topic) => <option key={topic.id} value={topic.id}>{topic.topic_title} (#{topic.id})</option>)}
+                {filteredTopicDetails.map((topic) => <option key={topic.id} value={topic.id}>{topic.topic_title} (#{topic.id})</option>)}
               </select>
-              <input value={subTopic} onChange={(e) => setSubTopic(e.target.value)} placeholder="Sub topic" style={fieldStyle()} />
+              <input value={subTopic} onChange={(e) => setSubTopic(e.target.value)} placeholder="Sub topic" style={{ ...fieldStyle(), borderColor: fieldErrors.sub_topic ? "#dc2626" : undefined }} />
             </>
           )}
 
@@ -1001,17 +1084,25 @@ export function LessonPlannerPagePanel() {
                 value={customTopicIds}
                 onChange={(e) => setCustomTopicIds(e.target.value)}
                 placeholder="Topic detail IDs (comma separated)"
-                style={{ ...fieldStyle(), gridColumn: "1 / -1" }}
+                style={{ ...fieldStyle(), gridColumn: "1 / -1", borderColor: fieldErrors.topic ? "#dc2626" : undefined }}
               />
               <textarea
                 value={customSubTopics}
                 onChange={(e) => setCustomSubTopics(e.target.value)}
                 placeholder="Sub topic lines (line 1 = first topic id)"
                 rows={3}
-                style={{ gridColumn: "1 / -1", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px" }}
+                style={{ gridColumn: "1 / -1", border: `1px solid ${fieldErrors.sub_topic ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "8px 10px" }}
               />
             </>
           )}
+
+          {fieldErrors.class_id && <div style={{ color: "#dc2626", fontSize: 12 }}>Class: {fieldErrors.class_id}</div>}
+          {fieldErrors.section_id && <div style={{ color: "#dc2626", fontSize: 12 }}>Section: {fieldErrors.section_id}</div>}
+          {fieldErrors.subject_id && <div style={{ color: "#dc2626", fontSize: 12 }}>Subject: {fieldErrors.subject_id}</div>}
+          {fieldErrors.lesson && <div style={{ color: "#dc2626", fontSize: 12 }}>Lesson: {fieldErrors.lesson}</div>}
+          {fieldErrors.lesson_date && <div style={{ color: "#dc2626", fontSize: 12 }}>Date: {fieldErrors.lesson_date}</div>}
+          {fieldErrors.topic && <div style={{ color: "#dc2626", fontSize: 12, gridColumn: "1 / -1" }}>Topic: {fieldErrors.topic}</div>}
+          {fieldErrors.sub_topic && <div style={{ color: "#dc2626", fontSize: 12, gridColumn: "1 / -1" }}>Sub topic: {fieldErrors.sub_topic}</div>}
 
           <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: 8 }}>
             {editingPlannerId && (
@@ -1019,7 +1110,7 @@ export function LessonPlannerPagePanel() {
                 Cancel Edit
               </button>
             )}
-            <button type="submit" disabled={saving} style={buttonStyle()}>{saving ? "Saving..." : editingPlannerId ? "Update Lesson Plan" : "Save Lesson Plan"}</button>
+            <button type="submit" disabled={!isPlannerFormValid} style={{ ...buttonStyle(), opacity: isPlannerFormValid ? 1 : 0.6, cursor: isPlannerFormValid ? "pointer" : "not-allowed" }}>{saving ? "Saving..." : editingPlannerId ? "Update Lesson Plan" : "Save Lesson Plan"}</button>
           </div>
         </form>
         {error && <p style={{ color: "var(--warning)", marginTop: 8 }}>{error}</p>}

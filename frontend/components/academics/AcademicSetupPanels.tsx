@@ -155,6 +155,48 @@ function initialYearId(years: AcademicYear[]): string {
   return years.length ? String(years[0].id) : "";
 }
 
+function extractClassTeacherFieldErrors(details: unknown, fallbackMessage: string): { academic_year?: string; class_id?: string; section_id?: string; teacher?: string } {
+  const errors: { academic_year?: string; class_id?: string; section_id?: string; teacher?: string } = {};
+  if (!details || typeof details !== "object") {
+    return errors;
+  }
+
+  const payload = details as Record<string, unknown>;
+  const rawErrors = payload.errors;
+  if (!rawErrors || typeof rawErrors !== "object" || Array.isArray(rawErrors)) {
+    return errors;
+  }
+
+  const source = rawErrors as Record<string, unknown>;
+  const pick = (key: string): string | undefined => {
+    const value = source[key];
+    if (!value) return undefined;
+    if (Array.isArray(value) && value.length) return String(value[0]);
+    return typeof value === "string" ? value : undefined;
+  };
+
+  errors.academic_year = pick("academic_year") || pick("academic_year_id");
+  errors.class_id = pick("school_class") || pick("class_id");
+  errors.section_id = pick("section") || pick("section_id");
+  errors.teacher = pick("teacher") || pick("teacher_id");
+
+  const topMessage = typeof payload.message === "string" ? payload.message : "";
+  if (!errors.teacher && (topMessage.toLowerCase().includes("teacher") || fallbackMessage.toLowerCase().includes("teacher"))) {
+    errors.teacher = topMessage || fallbackMessage;
+  }
+  if (!errors.class_id && topMessage.toLowerCase().includes("class") && !topMessage.toLowerCase().includes("teacher")) {
+    errors.class_id = topMessage;
+  }
+  if (!errors.section_id && topMessage.toLowerCase().includes("section")) {
+    errors.section_id = topMessage;
+  }
+  if (!errors.academic_year && topMessage.toLowerCase().includes("academic year")) {
+    errors.academic_year = topMessage;
+  }
+
+  return errors;
+}
+
 export function AssignClassTeacherPanel() {
   const { data, error: lookupError } = useLookupData();
   const [items, setItems] = useState<ClassTeacherAssignment[]>([]);
@@ -162,7 +204,9 @@ export function AssignClassTeacherPanel() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ academic_year?: string; class_id?: string; section_id?: string; teacher?: string }>({});
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [viewingRow, setViewingRow] = useState<ClassTeacherAssignment | null>(null);
 
   const [yearId, setYearId] = useState("");
   const [classId, setClassId] = useState("");
@@ -200,12 +244,14 @@ export function AssignClassTeacherPanel() {
 
   const availableSections = useMemo(() => sectionOptionsForClass(data.sections, classId), [data.sections, classId]);
   const filterSections = useMemo(() => sectionOptionsForClass(data.sections, filterClassId), [data.sections, filterClassId]);
+  const hasClassTeacherFieldError = Boolean(fieldErrors.academic_year || fieldErrors.class_id || fieldErrors.section_id || fieldErrors.teacher);
 
   const resetForm = (clearNotice = true) => {
     setEditingId(null);
     setClassId("");
     setSectionId("");
     setTeacherId("");
+    setFieldErrors({});
     if (clearNotice) {
       setMessage("");
       setError("");
@@ -214,8 +260,15 @@ export function AssignClassTeacherPanel() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!classId || !teacherId) {
-      setError("Class and class teacher are required.");
+    const nextErrors: { academic_year?: string; class_id?: string; section_id?: string; teacher?: string } = {};
+    if (!yearId) nextErrors.academic_year = "Academic year is required";
+    if (!classId) nextErrors.class_id = "Class is required";
+    if (!sectionId) nextErrors.section_id = "Section is required";
+    if (!teacherId) nextErrors.teacher = "Teacher is required";
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      setError("");
       return;
     }
 
@@ -223,6 +276,7 @@ export function AssignClassTeacherPanel() {
       setSaving(true);
       setError("");
       setMessage("");
+      setFieldErrors({});
       const payload = {
         academic_year_id: yearId ? Number(yearId) : null,
         class_id: Number(classId),
@@ -240,6 +294,17 @@ export function AssignClassTeacherPanel() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save class teacher assignment.";
       setError(msg);
+      const details = err && typeof err === "object" && "details" in err ? (err as { details?: unknown }).details : undefined;
+      const next = extractClassTeacherFieldErrors(details, msg);
+      if (!next.academic_year && !next.class_id && !next.section_id && !next.teacher) {
+        const lowered = msg.toLowerCase();
+        if (lowered.includes("academic year")) next.academic_year = msg;
+        if (lowered.includes("class") && !lowered.includes("teacher")) next.class_id = msg;
+        if (lowered.includes("section")) next.section_id = msg;
+        if (lowered.includes("teacher") || lowered.includes("not a teacher")) next.teacher = msg;
+      }
+      setFieldErrors(next);
+      setError(next.academic_year || next.class_id || next.section_id || next.teacher ? "" : msg);
     } finally {
       setSaving(false);
     }
@@ -256,6 +321,7 @@ export function AssignClassTeacherPanel() {
     setTeacherId(mappedTeacher ? String(mappedTeacher) : "");
     setMessage("");
     setError("");
+    setFieldErrors({});
   };
 
   const remove = async (id: number) => {
@@ -280,14 +346,14 @@ export function AssignClassTeacherPanel() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 8, alignItems: "end" }}>
           <div>
             <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Class</label>
-            <select value={filterClassId} onChange={(e) => { setFilterClassId(e.target.value); setFilterSectionId(""); }} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+            <select value={filterClassId} onChange={(e) => { setFilterClassId(e.target.value); setFilterSectionId(""); setError(""); }} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
               <option value="">All classes</option>
               {data.classes.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
             </select>
           </div>
           <div>
             <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Section</label>
-            <select value={filterSectionId} onChange={(e) => setFilterSectionId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+            <select value={filterSectionId} onChange={(e) => { setFilterSectionId(e.target.value); setError(""); }} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
               <option value="">All sections</option>
               {filterSections.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
             </select>
@@ -297,40 +363,44 @@ export function AssignClassTeacherPanel() {
         </div>
       </div>
 
-      <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto auto", gap: 8, marginBottom: 12, alignItems: "end" }}>
+      <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto auto", gap: 8, marginBottom: 12, alignItems: "start" }}>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Academic Year</label>
-          <select value={yearId} onChange={(e) => setYearId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+          <select required value={yearId} onChange={(e) => { setYearId(e.target.value); setFieldErrors((prev) => ({ ...prev, academic_year: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.academic_year ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
             <option value="">Select year</option>
             {data.years.map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.academic_year || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Class</label>
-          <select value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(""); }} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+          <select required value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(""); setFieldErrors((prev) => ({ ...prev, class_id: undefined, section_id: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.class_id ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
             <option value="">Select class</option>
             {data.classes.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.class_id || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Section</label>
-          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
-            <option value="">All sections</option>
+          <select required value={sectionId} onChange={(e) => { setSectionId(e.target.value); setFieldErrors((prev) => ({ ...prev, section_id: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.section_id ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
+            <option value="">Select section</option>
             {availableSections.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.section_id || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Class Teacher</label>
-          <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+          <select required value={teacherId} onChange={(e) => { setTeacherId(e.target.value); setFieldErrors((prev) => ({ ...prev, teacher: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.teacher ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
             <option value="">Select teacher</option>
             {data.teachers.map((row) => <option key={row.id} value={row.id}>{row.full_name || row.username}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.teacher || ""}</span>
         </div>
-        <button type="submit" disabled={saving} style={{ height: 36, background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer" }}>{saving ? "..." : editingId ? "Update" : "Assign"}</button>
-        {editingId ? <button type="button" onClick={() => resetForm()} style={{ height: 36, background: "#6b7280", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer" }}>Cancel</button> : null}
+        <button type="submit" disabled={saving} style={{ height: 36, background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer", alignSelf: "center", marginTop: 22 }}>{saving ? "Saving..." : editingId ? "Update" : "Assign"}</button>
+        {editingId ? <button type="button" onClick={() => resetForm()} style={{ height: 36, background: "#6b7280", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer", alignSelf: "center", marginTop: 22 }}>Cancel</button> : <span />}
       </form>
 
-      {(lookupError || error) && <p style={{ color: "var(--warning)", margin: "8px 0" }}>{lookupError || error}</p>}
+      {(lookupError || (error && !hasClassTeacherFieldError)) && <p style={{ color: "var(--warning)", margin: "8px 0" }}>{lookupError || error}</p>}
       {message && <p style={{ color: "#16a34a", margin: "8px 0" }}>{message}</p>}
 
       <div style={{ border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden", background: "var(--surface)" }}>
@@ -356,6 +426,7 @@ export function AssignClassTeacherPanel() {
                   <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)" }}>{nameById(data.sections, sectionValue, (entry) => entry.name)}</td>
                   <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)" }}>{nameById(data.teachers, teacherValue, (entry) => entry.full_name || entry.username)}</td>
                   <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)", display: "flex", gap: 6 }}>
+                    <button type="button" onClick={() => setViewingRow(row)} style={{ height: 28, padding: "0 10px", border: "none", borderRadius: 6, background: "#6366f1", color: "#fff", cursor: "pointer", fontSize: 12 }}>View</button>
                     <button type="button" onClick={() => edit(row)} style={{ height: 28, padding: "0 10px", border: "none", borderRadius: 6, background: "#0284c7", color: "#fff", cursor: "pointer", fontSize: 12 }}>Edit</button>
                     <button type="button" onClick={() => void remove(row.id)} style={{ height: 28, padding: "0 10px", border: "none", borderRadius: 6, background: "#dc2626", color: "#fff", cursor: "pointer", fontSize: 12 }}>Delete</button>
                   </td>
@@ -365,8 +436,149 @@ export function AssignClassTeacherPanel() {
           </tbody>
         </table>
       </div>
+
+      {viewingRow && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ background: "var(--surface)", borderRadius: 10, padding: 20, maxWidth: 500, width: "90%", maxHeight: "80vh", overflow: "auto" }}>
+            <h2 style={{ margin: "0 0 16px", fontSize: 18, fontWeight: 600 }}>Class Teacher Assignment Details</h2>
+            <div style={{ display: "grid", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Academic Year</label>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{nameById(data.years, viewingRow.academic_year_id, (entry) => entry.name)}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Class</label>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{nameById(data.classes, toId(viewingRow.class_id) ?? toId(viewingRow.school_class), (entry) => entry.name)}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Section</label>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{nameById(data.sections, toId(viewingRow.section_id) ?? toId(viewingRow.section), (entry) => entry.name)}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Class Teacher</label>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{nameById(data.teachers, toId(viewingRow.teacher_id) ?? toId(viewingRow.teacher), (entry) => entry.full_name || entry.username)}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Status</label>
+                <div style={{ fontSize: 14, marginTop: 4, color: viewingRow.active_status ? "#16a34a" : "#dc2626" }}>{viewingRow.active_status ? "Active" : "Inactive"}</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+              <button type="button" onClick={() => setViewingRow(null)} style={{ height: 36, padding: "0 16px", border: "none", borderRadius: 6, background: "#6b7280", color: "#fff", cursor: "pointer", fontSize: 13 }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
+}
+
+function extractSubjectFieldErrors(details: unknown, fallbackMessage: string): { academic_year?: string; class_id?: string; section_id?: string; subject_id?: string; teacher_id?: string } {
+  const errors: { academic_year?: string; class_id?: string; section_id?: string; subject_id?: string; teacher_id?: string } = {};
+  if (!details || typeof details !== "object") {
+    return errors;
+  }
+
+  const payload = details as Record<string, unknown>;
+  const rawErrors = payload.errors;
+  if (!rawErrors || typeof rawErrors !== "object" || Array.isArray(rawErrors)) {
+    return errors;
+  }
+
+  const source = rawErrors as Record<string, unknown>;
+  const pick = (key: string): string | undefined => {
+    const value = source[key];
+    if (!value) return undefined;
+    if (Array.isArray(value) && value.length) return String(value[0]);
+    return typeof value === "string" ? value : undefined;
+  };
+
+  errors.academic_year = pick("academic_year") || pick("academic_year_id");
+  errors.class_id = pick("school_class") || pick("class_id");
+  errors.section_id = pick("section") || pick("section_id");
+  errors.subject_id = pick("subject") || pick("subject_id");
+  errors.teacher_id = pick("teacher") || pick("teacher_id");
+
+  const topMessage = typeof payload.message === "string" ? payload.message : "";
+  if (!errors.teacher_id && (topMessage.toLowerCase().includes("teacher") || fallbackMessage.toLowerCase().includes("teacher"))) {
+    errors.teacher_id = topMessage || fallbackMessage;
+  }
+  if (!errors.class_id && topMessage.toLowerCase().includes("class") && !topMessage.toLowerCase().includes("teacher")) {
+    errors.class_id = topMessage;
+  }
+  if (!errors.section_id && topMessage.toLowerCase().includes("section")) {
+    errors.section_id = topMessage;
+  }
+  if (!errors.subject_id && topMessage.toLowerCase().includes("subject")) {
+    errors.subject_id = topMessage;
+  }
+  if (!errors.academic_year && topMessage.toLowerCase().includes("academic year")) {
+    errors.academic_year = topMessage;
+  }
+
+  return errors;
+}
+
+function extractClassRoutineFieldErrors(details: unknown, fallbackMessage: string): {
+  class_id?: string;
+  section_id?: string;
+  subject_id?: string;
+  teacher_id?: string;
+  day?: string;
+  start_time?: string;
+  end_time?: string;
+  room?: string;
+} {
+  const errors: {
+    class_id?: string;
+    section_id?: string;
+    subject_id?: string;
+    teacher_id?: string;
+    day?: string;
+    start_time?: string;
+    end_time?: string;
+    room?: string;
+  } = {};
+
+  if (!details || typeof details !== "object") {
+    return errors;
+  }
+
+  const payload = details as Record<string, unknown>;
+  const rawErrors = payload.errors;
+  if (!rawErrors || typeof rawErrors !== "object" || Array.isArray(rawErrors)) {
+    return errors;
+  }
+
+  const source = rawErrors as Record<string, unknown>;
+  const pick = (key: string): string | undefined => {
+    const value = source[key];
+    if (!value) return undefined;
+    if (Array.isArray(value) && value.length) return String(value[0]);
+    return typeof value === "string" ? value : undefined;
+  };
+
+  errors.class_id = pick("school_class") || pick("class_id");
+  errors.section_id = pick("section") || pick("section_id");
+  errors.subject_id = pick("subject") || pick("subject_id");
+  errors.teacher_id = pick("teacher") || pick("teacher_id");
+  errors.day = pick("day");
+  errors.start_time = pick("start_time");
+  errors.end_time = pick("end_time");
+  errors.room = pick("room");
+
+  const topMessage = typeof payload.message === "string" ? payload.message : fallbackMessage;
+  const lowered = topMessage.toLowerCase();
+  if (!errors.class_id && lowered.includes("class") && !lowered.includes("teacher")) errors.class_id = topMessage;
+  if (!errors.section_id && lowered.includes("section")) errors.section_id = topMessage;
+  if (!errors.subject_id && lowered.includes("subject")) errors.subject_id = topMessage;
+  if (!errors.teacher_id && (lowered.includes("teacher") || lowered.includes("assigned"))) errors.teacher_id = topMessage;
+  if (!errors.start_time && lowered.includes("start time")) errors.start_time = topMessage;
+  if (!errors.end_time && lowered.includes("end time")) errors.end_time = topMessage;
+  if (!errors.room && lowered.includes("room")) errors.room = topMessage;
+  if (!errors.day && lowered.includes("day")) errors.day = topMessage;
+
+  return errors;
 }
 
 export function AssignSubjectPanel() {
@@ -376,7 +588,9 @@ export function AssignSubjectPanel() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ academic_year?: string; class_id?: string; section_id?: string; subject_id?: string; teacher_id?: string }>({});
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [viewingRow, setViewingRow] = useState<ClassSubjectAssignment | null>(null);
 
   const [yearId, setYearId] = useState("");
   const [classId, setClassId] = useState("");
@@ -386,6 +600,14 @@ export function AssignSubjectPanel() {
   const [isOptional, setIsOptional] = useState(false);
   const [filterClassId, setFilterClassId] = useState("");
   const [filterSectionId, setFilterSectionId] = useState("");
+
+  const searchWithFilters = async () => {
+    if (!filterClassId || !filterSectionId) {
+      setError("Please select both class and section before searching.");
+      return;
+    }
+    await load();
+  };
 
   useEffect(() => {
     if (!yearId && data.years.length) {
@@ -416,6 +638,7 @@ export function AssignSubjectPanel() {
 
   const availableSections = useMemo(() => sectionOptionsForClass(data.sections, classId), [data.sections, classId]);
   const filterSections = useMemo(() => sectionOptionsForClass(data.sections, filterClassId), [data.sections, filterClassId]);
+  const hasSubjectFieldError = Boolean(fieldErrors.academic_year || fieldErrors.class_id || fieldErrors.section_id || fieldErrors.subject_id || fieldErrors.teacher_id);
 
   const resetForm = (clearNotice = true) => {
     setEditingId(null);
@@ -424,6 +647,7 @@ export function AssignSubjectPanel() {
     setSubjectId("");
     setTeacherId("");
     setIsOptional(false);
+    setFieldErrors({});
     if (clearNotice) {
       setMessage("");
       setError("");
@@ -432,8 +656,16 @@ export function AssignSubjectPanel() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!classId || !subjectId) {
-      setError("Class and subject are required.");
+    const nextErrors: { academic_year?: string; class_id?: string; section_id?: string; subject_id?: string; teacher_id?: string } = {};
+    if (!yearId) nextErrors.academic_year = "Academic year is required";
+    if (!classId) nextErrors.class_id = "Class is required";
+    if (!sectionId) nextErrors.section_id = "Section is required";
+    if (!subjectId) nextErrors.subject_id = "Subject is required";
+    if (!teacherId) nextErrors.teacher_id = "Teacher is required";
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      setError("");
       return;
     }
 
@@ -441,12 +673,13 @@ export function AssignSubjectPanel() {
       setSaving(true);
       setError("");
       setMessage("");
+      setFieldErrors({});
       const payload = {
         academic_year_id: yearId ? Number(yearId) : null,
         class_id: Number(classId),
         section_id: sectionId ? Number(sectionId) : null,
         subject_id: Number(subjectId),
-        teacher_id: teacherId ? Number(teacherId) : null,
+        teacher_id: Number(teacherId),
         is_optional: isOptional,
         active_status: true,
       };
@@ -460,6 +693,18 @@ export function AssignSubjectPanel() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save subject assignment.";
       setError(msg);
+      const details = err && typeof err === "object" && "details" in err ? (err as { details?: unknown }).details : undefined;
+      const next = extractSubjectFieldErrors(details, msg);
+      if (!next.academic_year && !next.class_id && !next.section_id && !next.subject_id && !next.teacher_id) {
+        const lowered = msg.toLowerCase();
+        if (lowered.includes("academic year")) next.academic_year = msg;
+        if (lowered.includes("class") && !lowered.includes("teacher")) next.class_id = msg;
+        if (lowered.includes("section")) next.section_id = msg;
+        if (lowered.includes("subject")) next.subject_id = msg;
+        if (lowered.includes("teacher") || lowered.includes("not a teacher")) next.teacher_id = msg;
+      }
+      setFieldErrors(next);
+      setError(next.academic_year || next.class_id || next.section_id || next.subject_id || next.teacher_id ? "" : msg);
     } finally {
       setSaving(false);
     }
@@ -479,6 +724,7 @@ export function AssignSubjectPanel() {
     setIsOptional(!!row.is_optional);
     setMessage("");
     setError("");
+    setFieldErrors({});
   };
 
   const remove = async (id: number) => {
@@ -515,53 +761,58 @@ export function AssignSubjectPanel() {
               {filterSections.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
             </select>
           </div>
-          <button type="button" onClick={() => void load()} style={{ height: 36, background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer" }}>Search</button>
+          <button type="button" onClick={() => void searchWithFilters()} style={{ height: 36, background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer" }}>Search</button>
           <button type="button" onClick={() => { setFilterClassId(""); setFilterSectionId(""); void load(); }} style={{ height: 36, background: "#6b7280", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer" }}>Reset</button>
         </div>
       </div>
 
-      <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr auto auto", gap: 8, marginBottom: 12, alignItems: "end" }}>
+      <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr auto auto", gap: 8, marginBottom: 12, alignItems: "start" }}>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Academic Year</label>
-          <select value={yearId} onChange={(e) => setYearId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+          <select required value={yearId} onChange={(e) => { setYearId(e.target.value); setFieldErrors((prev) => ({ ...prev, academic_year: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.academic_year ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
             <option value="">Select year</option>
             {data.years.map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.academic_year || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Class</label>
-          <select value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(""); }} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+          <select required value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(""); setFieldErrors((prev) => ({ ...prev, class_id: undefined, section_id: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.class_id ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
             <option value="">Select class</option>
             {data.classes.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.class_id || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Section</label>
-          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
-            <option value="">All sections</option>
+          <select required value={sectionId} onChange={(e) => { setSectionId(e.target.value); setFieldErrors((prev) => ({ ...prev, section_id: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.section_id ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
+            <option value="">Select section</option>
             {availableSections.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.section_id || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Subject</label>
-          <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+          <select required value={subjectId} onChange={(e) => { setSubjectId(e.target.value); setFieldErrors((prev) => ({ ...prev, subject_id: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.subject_id ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
             <option value="">Select subject</option>
             {data.subjects.map((row) => <option key={row.id} value={row.id}>{row.name}{row.code ? ` (${row.code})` : ""}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.subject_id || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Teacher</label>
-          <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
-            <option value="">Unassigned</option>
+          <select required value={teacherId} onChange={(e) => { setTeacherId(e.target.value); setFieldErrors((prev) => ({ ...prev, teacher_id: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.teacher_id ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
+            <option value="">Select teacher</option>
             {data.teachers.map((row) => <option key={row.id} value={row.id}>{row.full_name || row.username}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.teacher_id || ""}</span>
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, paddingBottom: 6, fontSize: 13 }}><input type="checkbox" checked={isOptional} onChange={(e) => setIsOptional(e.target.checked)} /> Optional</label>
-        <button type="submit" disabled={saving} style={{ height: 36, background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer" }}>{saving ? "..." : editingId ? "Update" : "Assign"}</button>
-        {editingId ? <button type="button" onClick={() => resetForm()} style={{ height: 36, background: "#6b7280", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer" }}>Cancel</button> : null}
+        <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 22, fontSize: 13 }}><input type="checkbox" checked={isOptional} onChange={(e) => setIsOptional(e.target.checked)} /> Optional</label>
+        <button type="submit" disabled={saving} style={{ height: 36, background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer", alignSelf: "center", marginTop: 22 }}>{saving ? "Saving..." : editingId ? "Update" : "Assign"}</button>
+        {editingId ? <button type="button" onClick={() => resetForm()} style={{ height: 36, background: "#6b7280", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer", alignSelf: "center", marginTop: 22 }}>Cancel</button> : <span />}
       </form>
 
-      {(lookupError || error) && <p style={{ color: "var(--warning)", margin: "8px 0" }}>{lookupError || error}</p>}
+      {(lookupError || (error && !hasSubjectFieldError)) && <p style={{ color: "var(--warning)", margin: "8px 0" }}>{lookupError || error}</p>}
       {message && <p style={{ color: "#16a34a", margin: "8px 0" }}>{message}</p>}
 
       <div style={{ border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden", background: "var(--surface)" }}>
@@ -592,6 +843,7 @@ export function AssignSubjectPanel() {
                   <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)" }}>{nameById(data.teachers, teacherValue, (entry) => entry.full_name || entry.username)}</td>
                   <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)" }}>{row.is_optional ? "Yes" : "No"}</td>
                   <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--line)", display: "flex", gap: 6 }}>
+                    <button type="button" onClick={() => setViewingRow(row)} style={{ height: 28, padding: "0 10px", border: "none", borderRadius: 6, background: "#6366f1", color: "#fff", cursor: "pointer", fontSize: 12 }}>View</button>
                     <button type="button" onClick={() => edit(row)} style={{ height: 28, padding: "0 10px", border: "none", borderRadius: 6, background: "#0284c7", color: "#fff", cursor: "pointer", fontSize: 12 }}>Edit</button>
                     <button type="button" onClick={() => void remove(row.id)} style={{ height: 28, padding: "0 10px", border: "none", borderRadius: 6, background: "#dc2626", color: "#fff", cursor: "pointer", fontSize: 12 }}>Delete</button>
                   </td>
@@ -601,6 +853,47 @@ export function AssignSubjectPanel() {
           </tbody>
         </table>
       </div>
+
+      {viewingRow && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ background: "var(--surface)", borderRadius: 10, padding: 20, maxWidth: 500, width: "90%", maxHeight: "80vh", overflow: "auto" }}>
+            <h2 style={{ margin: "0 0 16px", fontSize: 18, fontWeight: 600 }}>Subject Assignment Details</h2>
+            <div style={{ display: "grid", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Academic Year</label>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{nameById(data.years, viewingRow.academic_year_id, (entry) => entry.name)}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Class</label>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{nameById(data.classes, toId(viewingRow.class_id) ?? toId(viewingRow.school_class), (entry) => entry.name)}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Section</label>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{nameById(data.sections, toId(viewingRow.section_id) ?? toId(viewingRow.section), (entry) => entry.name)}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Subject</label>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{nameById(data.subjects, toId(viewingRow.subject_id) ?? toId(viewingRow.subject), (entry) => entry.name)}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Teacher</label>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{nameById(data.teachers, toId(viewingRow.teacher_id) ?? toId(viewingRow.teacher), (entry) => entry.full_name || entry.username)}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Optional</label>
+                <div style={{ fontSize: 14, marginTop: 4 }}>{viewingRow.is_optional ? "Yes" : "No"}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", display: "block" }}>Status</label>
+                <div style={{ fontSize: 14, marginTop: 4, color: viewingRow.active_status ? "#16a34a" : "#dc2626" }}>{viewingRow.active_status ? "Active" : "Inactive"}</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+              <button type="button" onClick={() => setViewingRow(null)} style={{ height: 36, padding: "0 16px", border: "none", borderRadius: 6, background: "#6b7280", color: "#fff", cursor: "pointer", fontSize: 13 }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -611,7 +904,9 @@ export function ClassRoomPanel() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ room_no?: string; capacity?: string }>({});
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [touched, setTouched] = useState<{ room_no: boolean; capacity: boolean }>({ room_no: false, capacity: false });
 
   const [roomNo, setRoomNo] = useState("");
   const [capacity, setCapacity] = useState("");
@@ -637,25 +932,90 @@ export function ClassRoomPanel() {
     setEditingId(null);
     setRoomNo("");
     setCapacity("");
+    setFieldErrors({});
+    setTouched({ room_no: false, capacity: false });
     if (clearNotice) {
       setMessage("");
       setError("");
     }
   };
 
+  const extractRoomFieldErrors = (details: unknown, fallbackMessage: string): { room_no?: string; capacity?: string } => {
+    const next: { room_no?: string; capacity?: string } = {};
+    if (!details || typeof details !== "object") return next;
+
+    const payload = details as Record<string, unknown>;
+    const rawErrors = payload.errors;
+    if (!rawErrors || typeof rawErrors !== "object" || Array.isArray(rawErrors)) {
+      return next;
+    }
+
+    const source = rawErrors as Record<string, unknown>;
+    const pick = (key: string): string | undefined => {
+      const value = source[key];
+      if (!value) return undefined;
+      if (Array.isArray(value) && value.length) return String(value[0]);
+      return typeof value === "string" ? value : undefined;
+    };
+
+    next.room_no = pick("room_no");
+    next.capacity = pick("capacity");
+
+    const message = typeof payload.message === "string" ? payload.message : fallbackMessage;
+    const lowered = message.toLowerCase();
+    if (!next.room_no && (lowered.includes("room") || lowered.includes("format"))) {
+      next.room_no = message;
+    }
+    if (!next.capacity && lowered.includes("capacity")) {
+      next.capacity = message;
+    }
+
+    return next;
+  };
+
+  const normalizedRoomNo = roomNo.trim().toUpperCase();
+  const capacityValue = capacity === "" ? NaN : Number(capacity);
+  const isCapacityNumber = Number.isInteger(capacityValue);
+  const roomNoClientError = !normalizedRoomNo
+    ? "Room no is required"
+    : !/^[A-Z]{1,5}-\d{1,4}$/.test(normalizedRoomNo)
+      ? "Invalid room number format"
+      : "";
+  const capacityClientError = !capacity
+    ? "Capacity is required"
+    : !isCapacityNumber
+      ? "Capacity must be numeric"
+      : capacityValue <= 0
+        ? "Capacity must be greater than zero"
+        : capacityValue > 200
+          ? "Capacity must not exceed 200"
+          : "";
+  const isFormInvalid = Boolean(roomNoClientError || capacityClientError);
+  const roomNoInlineError = fieldErrors.room_no || (touched.room_no ? roomNoClientError : "");
+  const capacityInlineError = fieldErrors.capacity || (touched.capacity ? capacityClientError : "");
+  const hasRoomFieldError = Boolean(roomNoInlineError || capacityInlineError);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!roomNo.trim()) {
-      setError("Room no is required.");
+    const nextErrors: { room_no?: string; capacity?: string } = {};
+    if (roomNoClientError) nextErrors.room_no = roomNoClientError;
+    if (capacityClientError) nextErrors.capacity = capacityClientError;
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      setTouched({ room_no: true, capacity: true });
+      setError("");
       return;
     }
+
     try {
       setSaving(true);
       setError("");
       setMessage("");
+      setFieldErrors({});
       const payload = {
-        room_no: roomNo.trim(),
-        capacity: capacity ? Number(capacity) : null,
+        room_no: normalizedRoomNo,
+        capacity: capacityValue,
         active_status: true,
       };
       await apiFetch(editingId ? `/api/v1/core/class-rooms/${editingId}/` : "/api/v1/core/class-rooms/", {
@@ -667,7 +1027,10 @@ export function ClassRoomPanel() {
       await load();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save class room.";
-      setError(msg);
+      const details = err && typeof err === "object" && "details" in err ? (err as { details?: unknown }).details : undefined;
+      const extracted = extractRoomFieldErrors(details, msg);
+      setFieldErrors(extracted);
+      setError(extracted.room_no || extracted.capacity ? "" : msg);
     } finally {
       setSaving(false);
     }
@@ -679,6 +1042,8 @@ export function ClassRoomPanel() {
     setCapacity(row.capacity != null ? String(row.capacity) : "");
     setMessage("");
     setError("");
+    setFieldErrors({});
+    setTouched({ room_no: false, capacity: false });
   };
 
   const remove = async (id: number) => {
@@ -687,8 +1052,9 @@ export function ClassRoomPanel() {
       setError("");
       await apiFetch(`/api/v1/core/class-rooms/${id}/`, { method: "DELETE" });
       await load();
-    } catch {
-      setError("Failed to delete class room.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to delete class room.";
+      setError(msg);
     }
   };
 
@@ -701,17 +1067,19 @@ export function ClassRoomPanel() {
       <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: "1fr 160px auto auto", gap: 8, marginBottom: 12, alignItems: "end" }}>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Room No</label>
-          <input value={roomNo} onChange={(e) => setRoomNo(e.target.value)} placeholder="e.g. A-101" style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }} />
+          <input value={roomNo} onChange={(e) => { setRoomNo(e.target.value.toUpperCase()); setFieldErrors((prev) => ({ ...prev, room_no: undefined })); setError(""); }} onBlur={() => setTouched((prev) => ({ ...prev, room_no: true }))} placeholder="Enter room number (e.g. A-101)" style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${roomNoInlineError ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }} />
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{roomNoInlineError || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Capacity</label>
-          <input type="number" value={capacity} onChange={(e) => setCapacity(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }} />
+          <input type="number" min={1} max={200} value={capacity} onChange={(e) => { setCapacity(e.target.value); setFieldErrors((prev) => ({ ...prev, capacity: undefined })); setError(""); }} onBlur={() => setTouched((prev) => ({ ...prev, capacity: true }))} placeholder="Enter capacity (1-200)" style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${capacityInlineError ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }} />
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{capacityInlineError || ""}</span>
         </div>
-        <button type="submit" disabled={saving} style={{ height: 36, background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer" }}>{saving ? "..." : editingId ? "Update" : "Add"}</button>
+        <button type="submit" disabled={saving || isFormInvalid} style={{ height: 36, background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: saving || isFormInvalid ? "not-allowed" : "pointer", opacity: saving || isFormInvalid ? 0.6 : 1 }}>{saving ? "Saving..." : editingId ? "Update" : "Add"}</button>
         {editingId ? <button type="button" onClick={() => resetForm()} style={{ height: 36, background: "#6b7280", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer" }}>Cancel</button> : null}
       </form>
 
-      {error && <p style={{ color: "var(--warning)", margin: "8px 0" }}>{error}</p>}
+      {error && !hasRoomFieldError && <p style={{ color: "var(--warning)", margin: "8px 0" }}>{error}</p>}
       {message && <p style={{ color: "#16a34a", margin: "8px 0" }}>{message}</p>}
 
       <div style={{ border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden", background: "var(--surface)" }}>
@@ -750,6 +1118,7 @@ export function ClassRoutinePanel() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ class_id?: string; section_id?: string; subject_id?: string; teacher_id?: string; day?: string; start_time?: string; end_time?: string; room?: string }>({});
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const [yearId, setYearId] = useState("");
@@ -813,6 +1182,16 @@ export function ClassRoutinePanel() {
 
   const availableSections = useMemo(() => sectionOptionsForClass(data.sections, classId), [data.sections, classId]);
   const filterSections = useMemo(() => sectionOptionsForClass(data.sections, filterClassId), [data.sections, filterClassId]);
+  const hasRoutineFieldError = Boolean(fieldErrors.class_id || fieldErrors.section_id || fieldErrors.subject_id || fieldErrors.teacher_id || fieldErrors.day || fieldErrors.start_time || fieldErrors.end_time || fieldErrors.room);
+  const isRoutineFormInvalid = Boolean(
+    !classId ||
+    !sectionId ||
+    !day ||
+    !startTime ||
+    !endTime ||
+    (!isBreak && (!subjectId || !teacherId)) ||
+    (isBreak && (subjectId || teacherId))
+  );
 
   const resetForm = (clearNotice = true) => {
     setEditingId(null);
@@ -827,6 +1206,7 @@ export function ClassRoutinePanel() {
     setRoomId("");
     setRoomText("");
     setIsBreak(false);
+    setFieldErrors({});
     if (clearNotice) {
       setMessage("");
       setError("");
@@ -835,8 +1215,20 @@ export function ClassRoutinePanel() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!classId || !subjectId || !startTime || !endTime) {
-      setError("Class, subject, start time and end time are required.");
+    const nextErrors: { class_id?: string; section_id?: string; subject_id?: string; teacher_id?: string; day?: string; start_time?: string; end_time?: string; room?: string } = {};
+    if (!classId) nextErrors.class_id = "Class is required";
+    if (!sectionId) nextErrors.section_id = "Section is required";
+    if (!day) nextErrors.day = "Day is required";
+    if (!startTime) nextErrors.start_time = "Start time is required";
+    if (!endTime) nextErrors.end_time = "End time is required";
+    if (!isBreak && !subjectId) nextErrors.subject_id = "Subject is required";
+    if (!isBreak && !teacherId) nextErrors.teacher_id = "Teacher is required";
+    if (isBreak && subjectId) nextErrors.subject_id = "Break should not have a subject";
+    if (isBreak && teacherId) nextErrors.teacher_id = "Break should not have a teacher";
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      setError("");
       return;
     }
 
@@ -844,13 +1236,14 @@ export function ClassRoutinePanel() {
       setSaving(true);
       setError("");
       setMessage("");
+      setFieldErrors({});
       const roomName = roomText.trim() || nameById(data.rooms, roomId ? Number(roomId) : null, (entry) => entry.room_no);
       const payload = {
         academic_year_id: yearId ? Number(yearId) : null,
         class_id: Number(classId),
         section_id: sectionId ? Number(sectionId) : null,
-        subject_id: Number(subjectId),
-        teacher_id: teacherId ? Number(teacherId) : null,
+        subject_id: isBreak ? null : Number(subjectId),
+        teacher_id: isBreak ? null : (teacherId ? Number(teacherId) : null),
         day,
         class_period_id: periodId ? Number(periodId) : null,
         start_time: startTime,
@@ -869,7 +1262,10 @@ export function ClassRoutinePanel() {
       await load();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to save class routine.";
-      setError(msg);
+      const details = err && typeof err === "object" && "details" in err ? (err as { details?: unknown }).details : undefined;
+      const extracted = extractClassRoutineFieldErrors(details, msg);
+      setFieldErrors(extracted);
+      setError(extracted.class_id || extracted.section_id || extracted.subject_id || extracted.teacher_id || extracted.day || extracted.start_time || extracted.end_time || extracted.room ? "" : msg);
     } finally {
       setSaving(false);
     }
@@ -896,6 +1292,7 @@ export function ClassRoutinePanel() {
     setActiveDayTab(row.day || "monday");
     setMessage("");
     setError("");
+    setFieldErrors({});
   };
 
   const remove = async (id: number) => {
@@ -957,38 +1354,43 @@ export function ClassRoutinePanel() {
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Class</label>
-          <select value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(""); }} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+          <select value={classId} onChange={(e) => { setClassId(e.target.value); setSectionId(""); setFieldErrors((prev) => ({ ...prev, class_id: undefined, section_id: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.class_id ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
             <option value="">Select class</option>
             {data.classes.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.class_id || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Section</label>
-          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+          <select value={sectionId} onChange={(e) => { setSectionId(e.target.value); setFieldErrors((prev) => ({ ...prev, section_id: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.section_id ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
             <option value="">All sections</option>
             {availableSections.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.section_id || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Subject</label>
-          <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
-            <option value="">Select subject</option>
+          <select value={subjectId} disabled={isBreak} onChange={(e) => { setSubjectId(e.target.value); setFieldErrors((prev) => ({ ...prev, subject_id: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.subject_id ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px", opacity: isBreak ? 0.7 : 1 }}>
+            <option value="">{isBreak ? "Not required for break" : "Select subject"}</option>
             {data.subjects.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.subject_id || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Teacher</label>
-          <select value={teacherId} onChange={(e) => setTeacherId(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
-            <option value="">Unassigned</option>
+          <select value={teacherId} disabled={isBreak} onChange={(e) => { setTeacherId(e.target.value); setFieldErrors((prev) => ({ ...prev, teacher_id: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.teacher_id ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px", opacity: isBreak ? 0.7 : 1 }}>
+            <option value="">{isBreak ? "Not required for break" : "Select teacher"}</option>
             {data.teachers.map((row) => <option key={row.id} value={row.id}>{row.full_name || row.username}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.teacher_id || ""}</span>
         </div>
 
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Day</label>
-          <select value={day} onChange={(e) => setDay(e.target.value)} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+          <select value={day} onChange={(e) => { setDay(e.target.value); setFieldErrors((prev) => ({ ...prev, day: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.day ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
             {dayOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.day || ""}</span>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Class Period</label>
@@ -1000,31 +1402,34 @@ export function ClassRoutinePanel() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <label style={{ fontSize: 12, color: "var(--text-muted)", display: 'block', marginBottom: 6, fontWeight: 600 }}>Start</label>
-            <TimeSpinnerPicker value={startTime} onChange={setStartTime} />
+            <TimeSpinnerPicker value={startTime} onChange={(value) => { setStartTime(value); setFieldErrors((prev) => ({ ...prev, start_time: undefined })); }} />
+            <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.start_time || ""}</span>
           </div>
           <div>
             <label style={{ fontSize: 12, color: "var(--text-muted)", display: 'block', marginBottom: 6, fontWeight: 600 }}>End</label>
-            <TimeSpinnerPicker value={endTime} onChange={setEndTime} />
+            <TimeSpinnerPicker value={endTime} onChange={(value) => { setEndTime(value); setFieldErrors((prev) => ({ ...prev, end_time: undefined })); }} />
+            <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.end_time || ""}</span>
           </div>
         </div>
         <div>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Room</label>
-          <select value={roomId} onChange={(e) => { setRoomId(e.target.value); setRoomText(""); }} style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }}>
+          <select value={roomId} onChange={(e) => { setRoomId(e.target.value); setRoomText(""); setFieldErrors((prev) => ({ ...prev, room: undefined })); }} style={{ marginTop: 4, width: "100%", height: 36, border: `1px solid ${fieldErrors.room ? "#dc2626" : "var(--line)"}`, borderRadius: 8, padding: "0 10px" }}>
             <option value="">Select room</option>
             {data.rooms.filter((room) => room.active_status).map((row) => <option key={row.id} value={row.id}>{row.room_no}</option>)}
           </select>
+          <span style={{ display: "block", minHeight: 16, fontSize: 12, color: "#dc2626" }}>{fieldErrors.room || ""}</span>
         </div>
 
         <div style={{ gridColumn: "1 / span 2" }}>
           <label style={{ fontSize: 12, color: "var(--text-muted)" }}>Room Text (optional)</label>
           <input value={roomText} onChange={(e) => setRoomText(e.target.value)} placeholder="Override room label" style={{ marginTop: 4, width: "100%", height: 36, border: "1px solid var(--line)", borderRadius: 8, padding: "0 10px" }} />
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, paddingTop: 24, fontSize: 13 }}><input type="checkbox" checked={isBreak} onChange={(e) => setIsBreak(e.target.checked)} /> Break</label>
-        <button type="submit" disabled={saving} style={{ height: 36, background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer", marginTop: 24 }}>{saving ? "..." : editingId ? "Update" : "Save"}</button>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, paddingTop: 24, fontSize: 13 }}><input type="checkbox" checked={isBreak} onChange={(e) => { const checked = e.target.checked; setIsBreak(checked); if (checked) { setSubjectId(""); setTeacherId(""); setFieldErrors((prev) => ({ ...prev, subject_id: undefined, teacher_id: undefined })); } }} /> Break</label>
+        <button type="submit" disabled={saving || isRoutineFormInvalid} style={{ height: 36, background: "var(--primary)", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: saving || isRoutineFormInvalid ? "not-allowed" : "pointer", marginTop: 24, opacity: saving || isRoutineFormInvalid ? 0.6 : 1 }}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</button>
         {editingId ? <button type="button" onClick={() => resetForm()} style={{ height: 36, background: "#6b7280", color: "#fff", border: "none", borderRadius: 8, padding: "0 14px", cursor: "pointer", marginTop: 24 }}>Cancel</button> : null}
       </form>
 
-      {(lookupError || error) && <p style={{ color: "var(--warning)", margin: "8px 0" }}>{lookupError || error}</p>}
+      {(lookupError || (error && !hasRoutineFieldError)) && <p style={{ color: "var(--warning)", margin: "8px 0" }}>{lookupError || error}</p>}
       {message && <p style={{ color: "#16a34a", margin: "8px 0" }}>{message}</p>}
 
       <div style={{ display: "flex", gap: 6, borderBottom: "1px solid var(--line)", marginBottom: 10, overflowX: "auto" }}>

@@ -136,7 +136,7 @@ export function TimeSpinnerPicker({ value, onChange }: TimeSpinnerPickerProps) {
           cursor: "pointer",
         }}
       >
-        <span>{hours}:{minutes} {period}</span>
+        <span>{value ? `${hours}:${minutes} ${period}` : "Select time"}</span>
         <span style={{ color: "#64748b" }}>🕐</span>
       </button>
 

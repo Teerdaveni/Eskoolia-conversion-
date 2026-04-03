@@ -5,6 +5,17 @@ import { apiRequestWithRefresh } from "@/lib/api-auth";
 
 type ApiList<T> = T[] | { results?: T[] };
 
+type SchoolClass = {
+  id: number;
+  name: string;
+};
+
+type Section = {
+  id: number;
+  school_class: number;
+  name: string;
+};
+
 type StudentRow = {
   id: number;
   admission_no: string;
@@ -63,17 +74,32 @@ function buttonStyle(color = "var(--primary)") {
 
 export function StudentListPanel() {
   const [rows, setRows] = useState<StudentRow[]>([]);
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [search, setSearch] = useState("");
+  const [classId, setClassId] = useState("");
+  const [sectionId, setSectionId] = useState("");
   const [onlyActive, setOnlyActive] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const filteredSections = useMemo(() => {
+    if (!classId) return [];
+    return sections.filter((section) => String(section.school_class) === classId);
+  }, [sections, classId]);
 
   const load = async () => {
     try {
       setLoading(true);
       setError("");
-      const data = await apiGet<ApiList<StudentRow>>("/api/v1/students/students/");
-      setRows(listData(data));
+      const [studentData, classData, sectionData] = await Promise.all([
+        apiGet<ApiList<StudentRow>>("/api/v1/students/students/"),
+        apiGet<ApiList<SchoolClass>>("/api/v1/core/classes/"),
+        apiGet<ApiList<Section>>("/api/v1/core/sections/"),
+      ]);
+      setRows(listData(studentData));
+      setClasses(listData(classData));
+      setSections(listData(sectionData));
     } catch {
       setError("Unable to load students.");
     } finally {
@@ -91,18 +117,22 @@ export function StudentListPanel() {
       if (onlyActive && !row.is_active) {
         return false;
       }
+      if (classId && String(row.current_class || "") !== classId) {
+        return false;
+      }
+      if (sectionId && String(row.current_section || "") !== sectionId) {
+        return false;
+      }
       if (!q) {
         return true;
       }
       const name = `${row.first_name || ""} ${row.last_name || ""}`.trim().toLowerCase();
       return (
-        String(row.id).includes(q) ||
-        (row.admission_no || "").toLowerCase().includes(q) ||
         (row.roll_no || "").toLowerCase().includes(q) ||
         name.includes(q)
       );
     });
-  }, [rows, search, onlyActive]);
+  }, [rows, search, onlyActive, classId, sectionId]);
 
   return (
     <div className="legacy-panel">
@@ -124,17 +154,57 @@ export function StudentListPanel() {
       <section className="admin-visitor-area up_st_admin_visitor">
         <div className="container-fluid p-0">
           <div className="white-box" style={{ ...boxStyle(), marginBottom: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr)) auto auto", gap: 8 }}>
+              <select
+                value={classId}
+                onChange={(event) => {
+                  setClassId(event.target.value);
+                  setSectionId("");
+                }}
+                style={fieldStyle()}
+              >
+                <option value="">Select Class</option>
+                {classes.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={sectionId}
+                onChange={(event) => setSectionId(event.target.value)}
+                style={fieldStyle()}
+                disabled={!classId}
+              >
+                <option value="">Select Section</option>
+                {filteredSections.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by name, admission no, roll no"
+                placeholder="Search by name or roll no"
                 style={fieldStyle()}
               />
               <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <input type="checkbox" checked={onlyActive} onChange={(event) => setOnlyActive(event.target.checked)} />
                 Active Only
               </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setClassId("");
+                  setSectionId("");
+                  setSearch("");
+                  setOnlyActive(true);
+                }}
+                style={buttonStyle("#6b7280")}
+              >
+                Reset
+              </button>
               <button type="button" onClick={() => void load()} style={buttonStyle()}>
                 Refresh
               </button>
@@ -174,8 +244,8 @@ export function StudentListPanel() {
                           {`${row.first_name || ""} ${row.last_name || ""}`.trim() || "-"}
                         </td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--line)", textTransform: "capitalize" }}>{row.gender || "-"}</td>
-                        <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.current_class ?? "-"}</td>
-                        <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{row.current_section ?? "-"}</td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{classes.find((item) => item.id === row.current_class)?.name || "-"}</td>
+                        <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>{sections.find((item) => item.id === row.current_section)?.name || "-"}</td>
                         <td style={{ padding: 8, borderBottom: "1px solid var(--line)" }}>
                           {row.is_active ? (row.is_disabled ? "Disabled" : "Active") : "Inactive"}
                         </td>

@@ -345,7 +345,32 @@ export default function ReportExplorer({ definition }: { definition: ReportDefin
       <section className="admin-visitor-area up_st_admin_visitor">
         <div className="container-fluid p-0">
           <div className="white-box report-criteria-box">
-            <h3>Select Criteria</h3>
+            <div className="report-criteria-header">
+              <h3>Select Criteria</h3>
+              <div className="report-export-actions">
+                <button
+                  type="button"
+                  onClick={() => void downloadExport("csv")}
+                  className="report-btn report-btn-csv"
+                >
+                  Export CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadExport("excel")}
+                  className="report-btn report-btn-excel"
+                >
+                  Export Excel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadExport("pdf")}
+                  className="report-btn report-btn-pdf"
+                >
+                  Export PDF
+                </button>
+              </div>
+            </div>
             <div className="row align-items-end">
               {filterFields.map((field) => {
                 const controlId = `report-filter-${field.key}`;
@@ -424,8 +449,9 @@ export default function ReportExplorer({ definition }: { definition: ReportDefin
                 );
               })}
 
-              <div className="col-lg-12 col-md-12 col-12">
-                <div className="report-actions">
+              <div className="col-lg-3 col-md-4 col-sm-6 col-12 report-field report-field-actions">
+                <label htmlFor="report-search-action">Actions</label>
+                <div className="report-actions report-actions-inline" id="report-search-action">
                 <button
                   type="button"
                   onClick={() => void loadData(1)}
@@ -441,27 +467,6 @@ export default function ReportExplorer({ definition }: { definition: ReportDefin
                   className="report-btn report-btn-outline"
                 >
                   Reset
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void downloadExport("csv")}
-                  className="report-btn report-btn-csv"
-                >
-                  Export CSV
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void downloadExport("excel")}
-                  className="report-btn report-btn-excel"
-                >
-                  Export Excel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void downloadExport("pdf")}
-                  className="report-btn report-btn-pdf"
-                >
-                  Export PDF
                 </button>
                 </div>
               </div>

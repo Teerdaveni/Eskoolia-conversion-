@@ -1,4 +1,11 @@
+import os
+from datetime import time as time_obj
+
 from rest_framework import serializers
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from apps.access_control.models import UserRole
+from apps.users.models import User
 from .models import (
     ClassOptionalSubjectSetup,
     ClassRoutineSlot,
@@ -22,10 +29,73 @@ class LegacyAliasMixin(serializers.ModelSerializer):
 
 class ClassSubjectAssignmentSerializer(LegacyAliasMixin):
     class_id = serializers.PrimaryKeyRelatedField(source="school_class", queryset=ClassSubjectAssignment._meta.get_field("school_class").related_model.objects.all())
-    section_id = serializers.PrimaryKeyRelatedField(source="section", queryset=ClassSubjectAssignment._meta.get_field("section").related_model.objects.all(), allow_null=True, required=False)
+    section_id = serializers.PrimaryKeyRelatedField(source="section", queryset=ClassSubjectAssignment._meta.get_field("section").related_model.objects.all())
     subject_id = serializers.PrimaryKeyRelatedField(source="subject", queryset=ClassSubjectAssignment._meta.get_field("subject").related_model.objects.all())
-    teacher_id = serializers.PrimaryKeyRelatedField(source="teacher", queryset=ClassSubjectAssignment._meta.get_field("teacher").related_model.objects.all(), allow_null=True, required=False)
-    academic_year_id = serializers.PrimaryKeyRelatedField(source="academic_year", queryset=ClassSubjectAssignment._meta.get_field("academic_year").related_model.objects.all(), allow_null=True, required=False)
+    teacher_id = serializers.PrimaryKeyRelatedField(source="teacher", queryset=ClassSubjectAssignment._meta.get_field("teacher").related_model.objects.all())
+    academic_year_id = serializers.PrimaryKeyRelatedField(source="academic_year", queryset=ClassSubjectAssignment._meta.get_field("academic_year").related_model.objects.all())
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        academic_year = attrs.get("academic_year") or getattr(self.instance, "academic_year", None)
+        school_class = attrs.get("school_class") or getattr(self.instance, "school_class", None)
+        section = attrs.get("section") or getattr(self.instance, "section", None)
+        subject = attrs.get("subject") or getattr(self.instance, "subject", None)
+        teacher = attrs.get("teacher") or getattr(self.instance, "teacher", None)
+
+        errors = {}
+
+        if not academic_year:
+            errors.setdefault("academic_year", []).append("Academic year is required")
+        if not school_class:
+            errors.setdefault("school_class", []).append("Class is required")
+        if not section:
+            errors.setdefault("section", []).append("Section is required")
+        if not subject:
+            errors.setdefault("subject", []).append("Subject is required")
+        if not teacher:
+            errors.setdefault("teacher", []).append("Teacher is required")
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        # Validate section belongs to selected class
+        if section and school_class and section.school_class_id != school_class.id:
+            raise serializers.ValidationError({"message": "Invalid class and section combination"})
+
+        # Validate teacher exists and is active
+        teacher_obj = User.objects.filter(id=teacher.id).first()
+        if not teacher_obj or not teacher_obj.is_active or not getattr(teacher_obj, "access_status", True):
+            raise serializers.ValidationError({"teacher": ["Selected teacher is inactive"]})
+
+        # Validate teacher has Teacher role
+        has_teacher_role = UserRole.objects.filter(
+            user_id=teacher.id,
+            role__name__icontains="teacher",
+        ).exists()
+        if not has_teacher_role:
+            raise serializers.ValidationError({"message": "Selected user is not a teacher"})
+
+        # Validate no duplicate assignment (unique constraint scope)
+        school = attrs.get("school") or getattr(self.instance, "school", None)
+        request = self.context.get("request")
+        if not school and request and getattr(request.user, "school", None):
+            school = request.user.school
+
+        duplicate_qs = ClassSubjectAssignment.objects.filter(
+            school=school,
+            academic_year=academic_year,
+            school_class=school_class,
+            section=section,
+            subject=subject,
+        )
+        if self.instance is not None:
+            duplicate_qs = duplicate_qs.exclude(pk=self.instance.pk)
+
+        if duplicate_qs.exists():
+            raise serializers.ValidationError({"message": "Subject already assigned for this class and section"})
+
+        return attrs
 
     class Meta:
         model = ClassSubjectAssignment
@@ -61,9 +131,76 @@ class ClassSubjectAssignmentSerializer(LegacyAliasMixin):
 
 class ClassTeacherAssignmentSerializer(LegacyAliasMixin):
     class_id = serializers.PrimaryKeyRelatedField(source="school_class", queryset=ClassTeacherAssignment._meta.get_field("school_class").related_model.objects.all())
-    section_id = serializers.PrimaryKeyRelatedField(source="section", queryset=ClassTeacherAssignment._meta.get_field("section").related_model.objects.all(), allow_null=True, required=False)
+    section_id = serializers.PrimaryKeyRelatedField(source="section", queryset=ClassTeacherAssignment._meta.get_field("section").related_model.objects.all())
     teacher_id = serializers.PrimaryKeyRelatedField(source="teacher", queryset=ClassTeacherAssignment._meta.get_field("teacher").related_model.objects.all())
-    academic_year_id = serializers.PrimaryKeyRelatedField(source="academic_year", queryset=ClassTeacherAssignment._meta.get_field("academic_year").related_model.objects.all(), allow_null=True, required=False)
+    academic_year_id = serializers.PrimaryKeyRelatedField(source="academic_year", queryset=ClassTeacherAssignment._meta.get_field("academic_year").related_model.objects.all())
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        academic_year = attrs.get("academic_year") or getattr(self.instance, "academic_year", None)
+        school_class = attrs.get("school_class") or getattr(self.instance, "school_class", None)
+        section = attrs.get("section") or getattr(self.instance, "section", None)
+        teacher = attrs.get("teacher") or getattr(self.instance, "teacher", None)
+
+        errors = {}
+
+        if not academic_year:
+            errors.setdefault("academic_year", []).append("Academic year is required")
+        if not school_class:
+            errors.setdefault("school_class", []).append("Class is required")
+        if not section:
+            errors.setdefault("section", []).append("Section is required")
+        if not teacher:
+            errors.setdefault("teacher", []).append("Teacher is required")
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        if section and school_class and section.school_class_id != school_class.id:
+            raise serializers.ValidationError({"message": "Invalid class and section combination"})
+
+        teacher_obj = User.objects.filter(id=teacher.id).first()
+        if not teacher_obj or not teacher_obj.is_active or not getattr(teacher_obj, "access_status", True):
+            raise serializers.ValidationError({"teacher": ["Selected teacher is inactive"]})
+
+        has_teacher_role = UserRole.objects.filter(
+            user_id=teacher.id,
+            role__name__icontains="teacher",
+        ).exists()
+        if not has_teacher_role:
+            raise serializers.ValidationError({"message": "Selected user is not a teacher"})
+
+        # Validate class-section is set up for the academic year (check if any subject is assigned)
+        school = attrs.get("school") or getattr(self.instance, "school", None)
+        request = self.context.get("request")
+        if not school and request and getattr(request.user, "school", None):
+            school = request.user.school
+
+        has_subject_assignment = ClassSubjectAssignment.objects.filter(
+            school=school,
+            academic_year=academic_year,
+            school_class=school_class,
+            section=section,
+        ).exists()
+        if not has_subject_assignment:
+            raise serializers.ValidationError(
+                {"message": "No subjects are assigned for this class and section in the selected academic year. Please assign subjects first."}
+            )
+
+        duplicate_qs = ClassTeacherAssignment.objects.filter(
+            school=school,
+            academic_year=academic_year,
+            school_class=school_class,
+            section=section,
+        )
+        if self.instance is not None:
+            duplicate_qs = duplicate_qs.exclude(pk=self.instance.pk)
+
+        if duplicate_qs.exists():
+            raise serializers.ValidationError({"message": "Class teacher already assigned for this class and section"})
+
+        return attrs
 
     class Meta:
         model = ClassTeacherAssignment
@@ -95,9 +232,9 @@ class ClassTeacherAssignmentSerializer(LegacyAliasMixin):
 
 class ClassRoutineSlotSerializer(LegacyAliasMixin):
     class_id = serializers.PrimaryKeyRelatedField(source="school_class", queryset=ClassRoutineSlot._meta.get_field("school_class").related_model.objects.all())
-    section_id = serializers.PrimaryKeyRelatedField(source="section", queryset=ClassRoutineSlot._meta.get_field("section").related_model.objects.all(), allow_null=True, required=False)
-    subject_id = serializers.PrimaryKeyRelatedField(source="subject", queryset=ClassRoutineSlot._meta.get_field("subject").related_model.objects.all())
-    teacher_id = serializers.PrimaryKeyRelatedField(source="teacher", queryset=ClassRoutineSlot._meta.get_field("teacher").related_model.objects.all(), allow_null=True, required=False)
+    section_id = serializers.PrimaryKeyRelatedField(source="section", queryset=ClassRoutineSlot._meta.get_field("section").related_model.objects.all())
+    subject_id = serializers.PrimaryKeyRelatedField(source="subject", queryset=ClassRoutineSlot._meta.get_field("subject").related_model.objects.all(), required=False, allow_null=True)
+    teacher_id = serializers.PrimaryKeyRelatedField(source="teacher", queryset=ClassRoutineSlot._meta.get_field("teacher").related_model.objects.all(), required=False, allow_null=True)
     academic_year_id = serializers.PrimaryKeyRelatedField(source="academic_year", queryset=ClassRoutineSlot._meta.get_field("academic_year").related_model.objects.all(), allow_null=True, required=False)
 
     class Meta:
@@ -140,11 +277,158 @@ class ClassRoutineSlotSerializer(LegacyAliasMixin):
         ]
         validators = []
 
+    def _normalize_room(self, attrs):
+        room_id = attrs.get("room_id")
+        room = (attrs.get("room") or getattr(self.instance, "room", "") or "").strip()
+        attrs["room"] = room
+        if room_id in (None, ""):
+            attrs["room_id"] = None
+        return room_id, room
+
+    def _overlap_exists(self, queryset, start_time, end_time):
+        return queryset.filter(start_time__lt=end_time, end_time__gt=start_time).exists()
+
     def validate(self, attrs):
-        start_time = attrs.get("start_time")
-        end_time = attrs.get("end_time")
-        if start_time and end_time and end_time <= start_time:
-            raise serializers.ValidationError("end_time must be after start_time")
+        attrs = super().validate(attrs)
+
+        school = attrs.get("school") or getattr(self.instance, "school", None)
+        request = self.context.get("request")
+        if not school and request and getattr(request.user, "school", None):
+            school = request.user.school
+
+        academic_year = attrs.get("academic_year") or getattr(self.instance, "academic_year", None)
+        school_class = attrs.get("school_class") or getattr(self.instance, "school_class", None)
+        section = attrs.get("section") or getattr(self.instance, "section", None)
+        subject = attrs.get("subject") or getattr(self.instance, "subject", None)
+        teacher = attrs.get("teacher") or getattr(self.instance, "teacher", None)
+        day = attrs.get("day") or getattr(self.instance, "day", None)
+        start_time = attrs.get("start_time") or getattr(self.instance, "start_time", None)
+        end_time = attrs.get("end_time") or getattr(self.instance, "end_time", None)
+        is_break = bool(attrs.get("is_break", getattr(self.instance, "is_break", False)))
+        room_id, room = self._normalize_room(attrs)
+
+        errors = {}
+
+        if not school_class:
+            errors.setdefault("school_class", []).append("Class is required")
+        if not section:
+            errors.setdefault("section", []).append("Section is required")
+        if not day:
+            errors.setdefault("day", []).append("Day is required")
+        if not start_time:
+            errors.setdefault("start_time", []).append("Start time is required")
+        if not end_time:
+            errors.setdefault("end_time", []).append("End time is required")
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        if section and school_class and section.school_class_id != school_class.id:
+            raise serializers.ValidationError({"message": "Invalid class and section combination"})
+
+        if start_time == time_obj(0, 0) or end_time == time_obj(0, 0):
+            raise serializers.ValidationError({"message": "Invalid time value"})
+
+        if end_time <= start_time:
+            raise serializers.ValidationError({"message": "End time must be greater than start time"})
+
+        if is_break:
+            if subject:
+                raise serializers.ValidationError({"subject": ["Break should not have a subject"]})
+            if teacher:
+                raise serializers.ValidationError({"teacher": ["Break should not have a teacher"]})
+        else:
+            if not subject:
+                raise serializers.ValidationError({"subject": ["Subject is required"]})
+            if not teacher:
+                raise serializers.ValidationError({"teacher": ["Teacher is required"]})
+
+        if teacher:
+            teacher_obj = User.objects.filter(id=teacher.id).first()
+            if not teacher_obj or not teacher_obj.is_active or not getattr(teacher_obj, "access_status", True):
+                raise serializers.ValidationError({"teacher": ["Selected teacher is inactive"]})
+            has_teacher_role = UserRole.objects.filter(user_id=teacher.id, role__name__icontains="teacher").exists()
+            if not has_teacher_role:
+                raise serializers.ValidationError({"message": "Selected user is not a teacher"})
+
+        if school_class and day and start_time and end_time:
+            room_filters = {
+                "school": school,
+                "academic_year": academic_year,
+                "school_class": school_class,
+                "section": section,
+                "day": day,
+                "start_time": start_time,
+                "end_time": end_time,
+                "subject": subject,
+                "teacher": teacher,
+                "is_break": is_break,
+            }
+            if room_id not in (None, ""):
+                room_filters["room_id"] = room_id
+            elif room:
+                room_filters["room__iexact"] = room
+
+            duplicate_qs = ClassRoutineSlot.objects.filter(**room_filters)
+            if self.instance is not None:
+                duplicate_qs = duplicate_qs.exclude(pk=self.instance.pk)
+            if duplicate_qs.exists():
+                raise serializers.ValidationError({"message": "Duplicate timetable entry"})
+
+        if school_class and day and start_time and end_time:
+            class_conflict_qs = ClassRoutineSlot.objects.filter(
+                school=school,
+                academic_year=academic_year,
+                school_class=school_class,
+                section=section,
+                day=day,
+            )
+            if self.instance is not None:
+                class_conflict_qs = class_conflict_qs.exclude(pk=self.instance.pk)
+            if self._overlap_exists(class_conflict_qs, start_time, end_time):
+                raise serializers.ValidationError({"message": "This class already has a subject scheduled at this time"})
+
+        if teacher and day and start_time and end_time:
+            teacher_conflict_qs = ClassRoutineSlot.objects.filter(
+                school=school,
+                academic_year=academic_year,
+                teacher=teacher,
+                day=day,
+            )
+            if self.instance is not None:
+                teacher_conflict_qs = teacher_conflict_qs.exclude(pk=self.instance.pk)
+            if self._overlap_exists(teacher_conflict_qs, start_time, end_time):
+                raise serializers.ValidationError({"message": "Teacher is already assigned during this time"})
+
+        if room and day and start_time and end_time:
+            room_conflict_qs = ClassRoutineSlot.objects.filter(
+                school=school,
+                academic_year=academic_year,
+                day=day,
+            )
+            if room_id not in (None, ""):
+                room_conflict_qs = room_conflict_qs.filter(room_id=room_id)
+            else:
+                room_conflict_qs = room_conflict_qs.filter(room__iexact=room)
+            if self.instance is not None:
+                room_conflict_qs = room_conflict_qs.exclude(pk=self.instance.pk)
+            if self._overlap_exists(room_conflict_qs, start_time, end_time):
+                raise serializers.ValidationError({"message": "Room is already occupied at this time"})
+
+        if is_break and school_class and day and start_time and end_time:
+            break_conflict_qs = ClassRoutineSlot.objects.filter(
+                school=school,
+                academic_year=academic_year,
+                school_class=school_class,
+                section=section,
+                day=day,
+            )
+            if self.instance is not None:
+                break_conflict_qs = break_conflict_qs.exclude(pk=self.instance.pk)
+            if self._overlap_exists(break_conflict_qs, start_time, end_time):
+                raise serializers.ValidationError({"message": "Break overlaps with an existing class schedule"})
+
+        attrs["room"] = room
         return attrs
 
 
@@ -229,6 +513,7 @@ class HomeworkSerializer(LegacyAliasMixin):
     section_id = serializers.PrimaryKeyRelatedField(source="section_id_ref", queryset=Homework._meta.get_field("section_id_ref").related_model.objects.all(), allow_null=True, required=False)
     subject_id = serializers.PrimaryKeyRelatedField(source="subject_id_ref", queryset=Homework._meta.get_field("subject_id_ref").related_model.objects.all())
     academic_year_id = serializers.PrimaryKeyRelatedField(source="academic_year", queryset=Homework._meta.get_field("academic_year").related_model.objects.all(), allow_null=True, required=False)
+    file_upload = serializers.FileField(write_only=True, required=False, allow_null=True)
     evaluations = HomeworkSubmissionSerializer(many=True, read_only=True)
 
     class Meta:
@@ -240,6 +525,7 @@ class HomeworkSerializer(LegacyAliasMixin):
             "class_id",
             "section_id",
             "subject_id",
+            "file_upload",
             "academic_year",
             "class_id_ref",
             "section_id_ref",
@@ -272,11 +558,54 @@ class HomeworkSerializer(LegacyAliasMixin):
         ]
         validators = []
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        school_class = attrs.get("class_id_ref") or getattr(self.instance, "class_id_ref", None)
+        section = attrs.get("section_id_ref") or getattr(self.instance, "section_id_ref", None)
+        subject = attrs.get("subject_id_ref") or getattr(self.instance, "subject_id_ref", None)
+        description = (attrs.get("description") or getattr(self.instance, "description", "") or "").strip()
+        homework_date = attrs.get("homework_date") or getattr(self.instance, "homework_date", None)
+        submission_date = attrs.get("submission_date") or getattr(self.instance, "submission_date", None)
+
+        errors = {}
+
+        if not school_class:
+            errors.setdefault("class_id", []).append("Class is required")
+        if not subject:
+            errors.setdefault("subject_id", []).append("Subject is required")
+        if not description:
+            errors.setdefault("description", []).append("Description is required")
+        if not homework_date:
+            errors.setdefault("homework_date", []).append("Homework date is required")
+        if not submission_date:
+            errors.setdefault("submission_date", []).append("Submission date is required")
+
+        if homework_date and submission_date and submission_date < homework_date:
+            errors.setdefault("submission_date", []).append("Submission date must be on or after homework date")
+
+        if section and school_class and section.school_class_id != school_class.id:
+            raise serializers.ValidationError({"message": "Invalid class and section combination"})
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        file_upload = attrs.pop("file_upload", None)
+        if file_upload:
+            upload_path = default_storage.save(f"academics/homework/{file_upload.name}", ContentFile(file_upload.read()))
+            attrs["file"] = upload_path
+
+        attrs["description"] = description
+        return attrs
+
 
 class UploadedContentSerializer(LegacyAliasMixin):
+    ALLOWED_FILE_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".zip", ".jpg", ".jpeg", ".png", ".mp4", ".mp3"}
+
     class_id = serializers.PrimaryKeyRelatedField(source="class_id_ref", queryset=UploadedContent._meta.get_field("class_id_ref").related_model.objects.all(), allow_null=True, required=False)
     section_id = serializers.PrimaryKeyRelatedField(source="section_id_ref", queryset=UploadedContent._meta.get_field("section_id_ref").related_model.objects.all(), allow_null=True, required=False)
     academic_year_id = serializers.PrimaryKeyRelatedField(source="academic_year", queryset=UploadedContent._meta.get_field("academic_year").related_model.objects.all(), allow_null=True, required=False)
+    file_upload = serializers.FileField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = UploadedContent
@@ -286,6 +615,7 @@ class UploadedContentSerializer(LegacyAliasMixin):
             "academic_year_id",
             "class_id",
             "section_id",
+            "file_upload",
             "academic_year",
             "class_id_ref",
             "section_id_ref",
@@ -314,8 +644,63 @@ class UploadedContentSerializer(LegacyAliasMixin):
         ]
         validators = []
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        content_title = (attrs.get("content_title") or getattr(self.instance, "content_title", "") or "").strip()
+        content_type = attrs.get("content_type") or getattr(self.instance, "content_type", None)
+        upload_date = attrs.get("upload_date") or getattr(self.instance, "upload_date", None)
+        available_for_all_classes = bool(attrs.get("available_for_all_classes", getattr(self.instance, "available_for_all_classes", False)))
+        school_class = attrs.get("class_id_ref") or getattr(self.instance, "class_id_ref", None)
+        section = attrs.get("section_id_ref") or getattr(self.instance, "section_id_ref", None)
+
+        errors = {}
+        if not content_title:
+            errors.setdefault("content_title", []).append("Content title is required")
+        if not content_type:
+            errors.setdefault("content_type", []).append("Content type is required")
+        if not upload_date:
+            errors.setdefault("upload_date", []).append("Upload date is required")
+        if not available_for_all_classes and not school_class:
+            errors.setdefault("class_id", []).append("Class is required")
+
+        if section and school_class and section.school_class_id != school_class.id:
+            raise serializers.ValidationError({"message": "Invalid class and section combination"})
+
+        file_upload = attrs.pop("file_upload", None)
+        existing_file = (attrs.get("upload_file") or getattr(self.instance, "upload_file", "") or "").strip()
+
+        if file_upload:
+            extension = os.path.splitext(file_upload.name or "")[1].lower()
+            if extension not in self.ALLOWED_FILE_EXTENSIONS:
+                raise serializers.ValidationError({"message": "Invalid file format."})
+            try:
+                saved_path = default_storage.save(
+                    f"academics/uploaded-content/{file_upload.name}",
+                    ContentFile(file_upload.read()),
+                )
+            except Exception:
+                raise serializers.ValidationError({"message": "File upload failed. Please try again."})
+            attrs["upload_file"] = saved_path
+        elif not existing_file:
+            raise serializers.ValidationError({"message": "Please select a file to upload."})
+
+        if errors:
+            raise serializers.ValidationError({"message": "Please fill in all mandatory fields.", "errors": errors})
+
+        attrs["content_title"] = content_title
+        return attrs
+
 
 class LessonTopicDetailSerializer(LegacyAliasMixin):
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        topic_title = attrs.get("topic_title")
+        if not isinstance(topic_title, str) or not topic_title.strip():
+            raise serializers.ValidationError({"topic_title": "Topic title is required."})
+        attrs["topic_title"] = topic_title.strip()
+        return attrs
+
     class Meta:
         model = LessonTopicDetail
         fields = [
@@ -442,6 +827,74 @@ class LessonTopicGroupCreateSerializer(serializers.Serializer):
     academic_year_id = serializers.PrimaryKeyRelatedField(source="academic_year", queryset=LessonTopic._meta.get_field("academic_year").related_model.objects.all(), allow_null=True, required=False)
     topic = serializers.ListField(child=serializers.CharField(max_length=255), allow_empty=False)
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        school_class = attrs.get("school_class")
+        section = attrs.get("section")
+        subject = attrs.get("subject")
+        lesson = attrs.get("lesson")
+        academic_year = attrs.get("academic_year")
+        request = self.context.get("request")
+        school = getattr(getattr(request, "user", None), "school", None)
+        if not school and request is not None:
+            school = getattr(request, "school", None)
+
+        if not school:
+            raise serializers.ValidationError({"message": "School context is required."})
+        if not school_class:
+            raise serializers.ValidationError({"class_id": ["Class is required."]})
+        if not section:
+            raise serializers.ValidationError({"section_id": ["Section is required."]})
+        if not subject:
+            raise serializers.ValidationError({"subject_id": ["Subject is required."]})
+        if not lesson:
+            raise serializers.ValidationError({"lesson_id": ["Lesson is required."]})
+
+        if section and school_class and section.school_class_id != school_class.id:
+            raise serializers.ValidationError({"section_id": ["Invalid class and section combination."]})
+
+        if lesson and (
+            lesson.school_class_id != school_class.id
+            or lesson.subject_id != subject.id
+            or (section and lesson.section_id != section.id)
+        ):
+            raise serializers.ValidationError({"lesson_id": ["Selected lesson does not match the chosen class, section, and subject."]})
+
+        topic_items = attrs.get("topic") or []
+        cleaned_topics = []
+        seen_topics = set()
+        for index, topic_title in enumerate(topic_items, start=1):
+            if not isinstance(topic_title, str):
+                raise serializers.ValidationError({"topic": [f"Topic line {index} must be text."]})
+            normalized = topic_title.strip()
+            if not normalized:
+                raise serializers.ValidationError({"topic": [f"Topic line {index} cannot be empty."]})
+            if len(normalized) > 255:
+                raise serializers.ValidationError({"topic": [f"Topic line {index} must be 255 characters or fewer."]})
+            key = normalized.lower()
+            if key in seen_topics:
+                raise serializers.ValidationError({"topic": ["Duplicate topic titles are not allowed."]})
+            seen_topics.add(key)
+            cleaned_topics.append(normalized)
+
+        if len(cleaned_topics) > 100:
+            raise serializers.ValidationError({"topic": ["You can save up to 100 topics at a time."]})
+
+        duplicate_scope = LessonTopic.objects.filter(
+            school=school,
+            academic_year=academic_year,
+            school_class=school_class,
+            section=section,
+            subject=subject,
+            lesson=lesson,
+        )
+        if duplicate_scope.exists():
+            raise serializers.ValidationError({"message": "Topic group already exists for this lesson."})
+
+        attrs["topic"] = cleaned_topics
+        attrs["school"] = school
+        return attrs
+
 
 class LessonPlanTopicSerializer(LegacyAliasMixin):
     topic_id = serializers.PrimaryKeyRelatedField(source="topic", queryset=LessonPlanTopic._meta.get_field("topic").related_model.objects.all())
@@ -559,11 +1012,117 @@ class LessonPlannerCreateSerializer(serializers.Serializer):
     note = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, attrs):
-        customize = attrs.get("customize")
+        attrs = super().validate(attrs)
+        request = self.context.get("request")
+        school = getattr(getattr(request, "user", None), "school", None)
+        if not school and request is not None:
+            school = getattr(request, "school", None)
+
+        academic_year = attrs.get("academic_year")
+        day = attrs.get("day")
+        lesson = attrs.get("lesson")
+        teacher = attrs.get("teacher")
+        subject = attrs.get("subject")
+        school_class = attrs.get("school_class")
+        section = attrs.get("section")
+        lesson_date = attrs.get("lesson_date")
+        routine_id = attrs.get("routine_id")
+        class_period_id = attrs.get("class_period_id")
         topic_value = attrs.get("topic")
+        sub_topic_value = attrs.get("sub_topic")
+        customize = attrs.get("customize")
+
+        if not school:
+            raise serializers.ValidationError({"message": "School context is required."})
+        if not lesson:
+            raise serializers.ValidationError({"lesson": ["Lesson is required."]})
+        if not subject:
+            raise serializers.ValidationError({"subject": ["Subject is required."]})
+        if not school_class:
+            raise serializers.ValidationError({"school_class": ["Class is required."]})
+        if not lesson_date:
+            raise serializers.ValidationError({"lesson_date": ["Lesson date is required."]})
+
+        if section and school_class and section.school_class_id != school_class.id:
+            raise serializers.ValidationError({"section_id": ["Invalid class and section combination."]})
+
+        if lesson and (
+            lesson.school_class_id != school_class.id
+            or lesson.subject_id != subject.id
+            or (section and lesson.section_id != section.id)
+        ):
+            raise serializers.ValidationError({"lesson": ["Selected lesson does not match the chosen class, section, and subject."]})
+
+        if academic_year and (lesson_date < academic_year.start_date or lesson_date > academic_year.end_date):
+            raise serializers.ValidationError({"lesson_date": ["Lesson date must be within the selected academic year."]})
+
+        if routine_id:
+            routine_slot = ClassRoutineSlot.objects.filter(
+                school=school,
+                id=routine_id,
+                school_class=school_class,
+                subject=subject,
+            )
+            if section:
+                routine_slot = routine_slot.filter(section=section)
+            routine_slot = routine_slot.first()
+            if not routine_slot:
+                raise serializers.ValidationError({"routine_id": ["Selected routine does not match the chosen class, section, or subject."]})
+            if teacher and routine_slot.teacher_id and routine_slot.teacher_id != teacher.id:
+                raise serializers.ValidationError({"teacher_id": ["Selected teacher does not match the routine slot."]})
+            if class_period_id and routine_slot.class_period_id and int(class_period_id) != int(routine_slot.class_period_id):
+                raise serializers.ValidationError({"class_period_id": ["Selected class period does not match the routine slot."]})
+            if day is not None and routine_slot.day_id is not None and int(day) != int(routine_slot.day_id):
+                raise serializers.ValidationError({"day": ["Selected day does not match the routine slot."]})
+
         if customize == "customize":
             if not isinstance(topic_value, list) or not topic_value:
-                raise serializers.ValidationError({"topic": "At least one topic is required for customize mode."})
-        elif not topic_value:
-            raise serializers.ValidationError({"topic": "A topic is required."})
+                raise serializers.ValidationError({"topic": ["At least one topic is required for customize mode."]})
+            if not isinstance(sub_topic_value, list):
+                raise serializers.ValidationError({"sub_topic": ["Sub topics must be a list in customize mode."]})
+            if len(topic_value) > 100:
+                raise serializers.ValidationError({"topic": ["You can save up to 100 topics at a time."]})
+
+            cleaned_topic_ids = []
+            for index, topic_item in enumerate(topic_value, start=1):
+                try:
+                    topic_id = int(topic_item)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError({"topic": [f"Topic line {index} is invalid."]})
+                topic_detail = LessonTopicDetail.objects.filter(pk=topic_id).select_related("topic", "lesson").first()
+                if not topic_detail:
+                    raise serializers.ValidationError({"topic": [f"Topic detail #{topic_id} was not found."]})
+                if topic_detail.lesson_id != lesson.id:
+                    raise serializers.ValidationError({"topic": [f"Topic detail #{topic_id} does not belong to the selected lesson."]})
+                cleaned_topic_ids.append(topic_id)
+
+            cleaned_sub_topics = []
+            for index, sub_topic_item in enumerate(sub_topic_value, start=1):
+                if not isinstance(sub_topic_item, str):
+                    raise serializers.ValidationError({"sub_topic": [f"Sub topic line {index} must be text."]})
+                cleaned = sub_topic_item.strip()
+                if len(cleaned) > 255:
+                    raise serializers.ValidationError({"sub_topic": [f"Sub topic line {index} must be 255 characters or fewer."]})
+                cleaned_sub_topics.append(cleaned)
+
+            if len(cleaned_sub_topics) and len(cleaned_sub_topics) != len(cleaned_topic_ids):
+                raise serializers.ValidationError({"sub_topic": ["Sub topic count must match the topic count."]})
+
+            attrs["topic"] = cleaned_topic_ids
+            attrs["sub_topic"] = cleaned_sub_topics
+        else:
+            if not topic_value:
+                raise serializers.ValidationError({"topic": ["A topic is required."]})
+            try:
+                topic_id = int(topic_value)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({"topic": ["Selected topic is invalid."]})
+            topic_detail = LessonTopicDetail.objects.filter(pk=topic_id).select_related("topic", "lesson").first()
+            if not topic_detail:
+                raise serializers.ValidationError({"topic": ["Selected topic was not found."]})
+            if topic_detail.lesson_id != lesson.id:
+                raise serializers.ValidationError({"topic": ["Selected topic does not belong to the chosen lesson."]})
+            attrs["topic"] = topic_detail
+            attrs["topic_detail"] = topic_detail
+            attrs["sub_topic"] = sub_topic_value.strip() if isinstance(sub_topic_value, str) else ""
         return attrs

@@ -35,6 +35,17 @@ class LoginTokenObtainPairSerializer(TokenObtainPairSerializer):
             Q(username__iexact=login_value) | Q(email__iexact=login_value) | Q(phone__iexact=login_value)
         ).order_by("id")
 
+        # Support full-name login (e.g. "First Last") for legacy/ERP-style usage.
+        if not candidates.exists() and " " in login_value:
+            parts = [part for part in login_value.split(" ") if part]
+            if len(parts) >= 2:
+                first_name = parts[0]
+                last_name = " ".join(parts[1:])
+                candidates = User.objects.filter(
+                    first_name__iexact=first_name,
+                    last_name__iexact=last_name,
+                ).order_by("id")
+
         user = None
         for candidate in candidates:
             if candidate.check_password(password):

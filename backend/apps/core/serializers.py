@@ -9,6 +9,83 @@ from .models import (
 
 
 class AcademicYearSerializer(serializers.ModelSerializer):
+    YEAR_NAME_REGEX = re.compile(r"^\d{4}-\d{4}$")
+    MIN_DURATION_DAYS = 270  # ~9 months
+
+    def _school_id(self):
+        request = self.context.get("request")
+        if self.instance and self.instance.school_id:
+            return self.instance.school_id
+        if request and getattr(request.user, "school_id", None):
+            return request.user.school_id
+        return None
+
+    def _raise_validation(self, errors: dict):
+        raise serializers.ValidationError(errors)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        start_date = attrs.get("start_date") or getattr(self.instance, "start_date", None)
+        end_date = attrs.get("end_date") or getattr(self.instance, "end_date", None)
+        provided_name = (attrs.get("name") or "").strip()
+        school_id = self._school_id()
+
+        errors: dict[str, list[str]] = {}
+
+        if not start_date:
+            errors.setdefault("start_date", []).append("Start date is required.")
+        if not end_date:
+            errors.setdefault("end_date", []).append("End date is required.")
+
+        generated_name = None
+        if start_date and end_date:
+            if start_date >= end_date:
+                errors.setdefault("date", []).append("Start date must be before end date.")
+
+            duration_days = (end_date - start_date).days
+            if duration_days < self.MIN_DURATION_DAYS:
+                errors.setdefault("date", []).append("Academic year must be at least 9 months long.")
+
+            # School ERP standard: one academic year should cross into the next calendar year.
+            if end_date.year != start_date.year + 1:
+                errors.setdefault("date", []).append("Academic year must span across two consecutive calendar years.")
+
+            generated_name = f"{start_date.year}-{end_date.year}"
+            if not self.YEAR_NAME_REGEX.fullmatch(generated_name):
+                errors.setdefault("year_name", []).append("Academic year must be in format YYYY-YYYY.")
+
+            if provided_name and provided_name != generated_name:
+                errors.setdefault("year_name", []).append(
+                    f"Academic year name must match selected dates ({generated_name})."
+                )
+
+        if school_id and generated_name:
+            duplicate_qs = AcademicYear.objects.filter(school_id=school_id, name=generated_name)
+            if self.instance:
+                duplicate_qs = duplicate_qs.exclude(pk=self.instance.pk)
+            if duplicate_qs.exists():
+                errors.setdefault("year_name", []).append("Academic year already exists for this school.")
+
+            overlap_qs = AcademicYear.objects.filter(
+                school_id=school_id,
+                start_date__lte=end_date,
+                end_date__gte=start_date,
+            )
+            if self.instance:
+                overlap_qs = overlap_qs.exclude(pk=self.instance.pk)
+            if overlap_qs.exists():
+                errors.setdefault("date", []).append("Academic year date range overlaps an existing academic year.")
+
+        if errors:
+            self._raise_validation(errors)
+
+        # Enforce ERP naming convention from date range (server-side source of truth).
+        if generated_name:
+            attrs["name"] = generated_name
+
+        return attrs
+
     class Meta:
         model = AcademicYear
         fields = ["id", "school", "name", "start_date", "end_date", "is_current", "created_at", "updated_at"]
@@ -16,6 +93,31 @@ class AcademicYearSerializer(serializers.ModelSerializer):
 
 
 class SectionSerializer(serializers.ModelSerializer):
+    def validate_name(self, value):
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise serializers.ValidationError("Section name is required.")
+        return cleaned
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        school_class = attrs.get("school_class") or getattr(self.instance, "school_class", None)
+        name = (attrs.get("name") or getattr(self.instance, "name", "") or "").strip()
+
+        # Updates should always target one normalized section value.
+        if self.instance is not None and "," in name:
+            raise serializers.ValidationError({"name": "Update supports one section at a time. Use comma input only while adding sections."})
+
+        if school_class and name:
+            qs = Section.objects.filter(school_class=school_class, name__iexact=name)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError({"name": "Section name already exists"})
+
+        return attrs
+
     class Meta:
         model = Section
         fields = ["id", "school_class", "name", "capacity", "created_at"]
@@ -25,6 +127,37 @@ class SectionSerializer(serializers.ModelSerializer):
 class ClassSerializer(serializers.ModelSerializer):
     sections = SectionSerializer(many=True, read_only=True)
 
+    def _school_id(self):
+        request = self.context.get("request")
+        if self.instance and self.instance.school_id:
+            return self.instance.school_id
+        if request and getattr(request.user, "school_id", None):
+            return request.user.school_id
+        return None
+
+    def validate_name(self, value):
+        cleaned = (value or "").strip()
+        if re.fullmatch(r"\d+", cleaned):
+            if int(cleaned) > 12:
+                raise serializers.ValidationError(
+                    "Numeric class names above 12 are not allowed. Use 1-12 or names like Nursery/LKG/UKG."
+                )
+
+        school_id = self._school_id()
+        if school_id and cleaned:
+            duplicate_qs = Class.objects.filter(school_id=school_id, name__iexact=cleaned)
+            if self.instance is not None:
+                duplicate_qs = duplicate_qs.exclude(pk=self.instance.pk)
+            if duplicate_qs.exists():
+                raise serializers.ValidationError("Class name already exists")
+
+        return cleaned
+
+    def validate_numeric_order(self, value):
+        if value is not None and value > 12:
+            raise serializers.ValidationError("Class order cannot be greater than 12.")
+        return value
+
     class Meta:
         model = Class
         fields = ["id", "school", "name", "numeric_order", "sections", "created_at"]
@@ -32,6 +165,76 @@ class ClassSerializer(serializers.ModelSerializer):
 
 
 class SubjectSerializer(serializers.ModelSerializer):
+    SUBJECT_NAME_REGEX = re.compile(r"^[A-Za-z ]+$")
+    SUBJECT_CODE_REGEX = re.compile(r"^[A-Za-z0-9]+$")
+
+    def _school_id(self):
+        request = self.context.get("request")
+        if self.instance and self.instance.school_id:
+            return self.instance.school_id
+        if request and getattr(request.user, "school_id", None):
+            return request.user.school_id
+        return None
+
+    def _raise_validation(self, errors: dict):
+        raise serializers.ValidationError(errors)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        school_id = self._school_id()
+        raw_name = attrs.get("name", getattr(self.instance, "name", ""))
+        raw_code = attrs.get("code", getattr(self.instance, "code", ""))
+        raw_subject_type = attrs.get("subject_type", getattr(self.instance, "subject_type", ""))
+
+        name = (raw_name or "").strip()
+        code = (raw_code or "").strip().upper()
+        subject_type = (raw_subject_type or "").strip().lower()
+
+        errors: dict[str, list[str]] = {}
+
+        # Name rules: required, >=2 chars, letters+spaces only, unique (case-insensitive).
+        if not name:
+            errors.setdefault("name", []).append("Subject name is required.")
+        elif len(name) < 2:
+            errors.setdefault("name", []).append("Subject name must be at least 2 characters.")
+        elif not self.SUBJECT_NAME_REGEX.fullmatch(name):
+            errors.setdefault("name", []).append("Subject name can contain only letters and spaces.")
+
+        # Code rules: required, alphanumeric, 3-10 chars, unique.
+        if not code:
+            errors.setdefault("code", []).append("Subject code is required.")
+        elif not self.SUBJECT_CODE_REGEX.fullmatch(code):
+            errors.setdefault("code", []).append("Subject code must be alphanumeric.")
+        elif len(code) < 3 or len(code) > 10:
+            errors.setdefault("code", []).append("Subject code length must be between 3 and 10 characters.")
+
+        # Type rules: only Compulsory or Optional.
+        if subject_type not in {"compulsory", "optional"}:
+            errors.setdefault("subject_type", []).append("Subject type must be either Compulsory or Optional.")
+
+        if school_id and name:
+            name_qs = Subject.objects.filter(school_id=school_id, name__iexact=name)
+            if self.instance is not None:
+                name_qs = name_qs.exclude(pk=self.instance.pk)
+            if name_qs.exists():
+                errors.setdefault("name", []).append("Subject name already exists.")
+
+        if school_id and code:
+            code_qs = Subject.objects.filter(school_id=school_id, code__iexact=code)
+            if self.instance is not None:
+                code_qs = code_qs.exclude(pk=self.instance.pk)
+            if code_qs.exists():
+                errors.setdefault("code", []).append("Subject code already exists.")
+
+        if errors:
+            self._raise_validation(errors)
+
+        attrs["name"] = name
+        attrs["code"] = code
+        attrs["subject_type"] = subject_type
+        return attrs
+
     class Meta:
         model = Subject
         fields = ["id", "school", "name", "code", "subject_type", "created_at"]
@@ -46,6 +249,58 @@ class ClassPeriodSerializer(serializers.ModelSerializer):
 
 
 class ClassRoomSerializer(serializers.ModelSerializer):
+    ROOM_NO_REGEX = re.compile(r"^[A-Z]{1,5}-\d{1,4}$")
+
+    def _school_id(self):
+        request = self.context.get("request")
+        if self.instance and self.instance.school_id:
+            return self.instance.school_id
+        if request and getattr(request.user, "school_id", None):
+            return request.user.school_id
+        return None
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        room_no_raw = attrs.get("room_no", getattr(self.instance, "room_no", ""))
+        room_no = (room_no_raw or "").strip().upper()
+        capacity = attrs.get("capacity", getattr(self.instance, "capacity", None))
+
+        errors = {}
+
+        if not room_no:
+            errors.setdefault("room_no", []).append("Room no is required")
+        elif not self.ROOM_NO_REGEX.fullmatch(room_no):
+            errors.setdefault("message", []).append("Invalid room number format")
+
+        if capacity in (None, ""):
+            errors.setdefault("capacity", []).append("Capacity is required")
+        else:
+            try:
+                capacity_value = int(capacity)
+            except (TypeError, ValueError):
+                errors.setdefault("message", []).append("Capacity must be numeric")
+            else:
+                if capacity_value <= 0:
+                    errors.setdefault("message", []).append("Capacity must be greater than zero")
+                if capacity_value > 200:
+                    errors.setdefault("capacity", []).append("Capacity must not exceed 200")
+                attrs["capacity"] = capacity_value
+
+        school_id = self._school_id()
+        if school_id and room_no:
+            duplicate_qs = ClassRoom.objects.filter(school_id=school_id, room_no__iexact=room_no)
+            if self.instance is not None:
+                duplicate_qs = duplicate_qs.exclude(pk=self.instance.pk)
+            if duplicate_qs.exists():
+                errors.setdefault("message", []).append("Room already exists")
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        attrs["room_no"] = room_no
+        return attrs
+
     class Meta:
         model = ClassRoom
         fields = ["id", "school", "room_no", "capacity", "active_status", "created_at", "updated_at"]

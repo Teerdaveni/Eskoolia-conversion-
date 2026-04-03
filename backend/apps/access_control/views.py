@@ -399,6 +399,8 @@ class LoginAccessControlViewSet(viewsets.ViewSet):
             if name:
                 students_qs = students_qs.filter(Q(first_name__icontains=name) | Q(last_name__icontains=name))
 
+            students_qs = students_qs.order_by("admission_no", "id")
+
             parent_role = None
             for role_row in self._roles_queryset(request):
                 if _is_parent_role(role_row):
@@ -417,19 +419,85 @@ class LoginAccessControlViewSet(viewsets.ViewSet):
                     if normalized:
                         parent_users_by_phone.setdefault(normalized, parent_row.user)
 
+            # Fallback for schools where UserRole rows are not yet mapped for students:
+            # match login users by username = admission_no.
+            student_user_by_username = {
+                row.user.username: row.user
+                for row in user_role_qs.select_related("user").order_by("user_id")
+            }
+            admission_usernames = [str(v) for v in students_qs.values_list("admission_no", flat=True) if v]
+            fallback_users = User.objects.filter(username__in=admission_usernames)
+            if not request.user.is_superuser and request.user.school_id:
+                fallback_users = fallback_users.filter(school_id=request.user.school_id)
+            for user in fallback_users:
+                student_user_by_username.setdefault(user.username, user)
+
+            # Ensure each listed student has a login user and Student role mapping,
+            # so actions (toggle/password) work similar to teacher rows.
             for student in students_qs:
-                if student.admission_no:
-                    username_key = str(student.admission_no)
-                    linked_student_by_username[username_key] = student
+                username_value = str(student.admission_no or "").strip()
+                if not username_value:
+                    continue
 
-                    guardian_phone = _normalize_phone(getattr(student.guardian, "phone", ""))
-                    if guardian_phone and guardian_phone in parent_users_by_phone:
-                        linked_parent_by_student_username[username_key] = parent_users_by_phone[guardian_phone]
+                student_user = student_user_by_username.get(username_value)
+                if student_user is None:
+                    student_user = User.objects.filter(username=username_value).first()
 
-            if linked_student_by_username:
-                user_role_qs = user_role_qs.filter(user__username__in=list(linked_student_by_username.keys()))
-            else:
-                user_role_qs = user_role_qs.none()
+                if student_user is None:
+                    student_user = User(
+                        username=username_value,
+                        first_name=(student.first_name or "").strip(),
+                        last_name=(student.last_name or "").strip(),
+                        school_id=student.school_id,
+                        access_status=True,
+                    )
+                    student_user.set_password("123456")
+                    student_user.save()
+
+                if not UserRole.objects.filter(user_id=student_user.id, role_id=role.id).exists():
+                    UserRole.objects.create(user_id=student_user.id, role_id=role.id)
+
+                student_user_by_username[username_value] = student_user
+
+            rows = []
+            for student in students_qs:
+                admission_value = str(student.admission_no or "")
+                student_user = student_user_by_username.get(admission_value) if admission_value else None
+
+                guardian_phone = _normalize_phone(getattr(student.guardian, "phone", ""))
+                parent_user = parent_users_by_phone.get(guardian_phone) if guardian_phone else None
+
+                student_name = f"{(student.first_name or '').strip()} {(student.last_name or '').strip()}".strip() or admission_value
+                parent_name = ""
+                if parent_user:
+                    parent_name = (
+                        f"{(parent_user.first_name or '').strip()} {(parent_user.last_name or '').strip()}".strip()
+                        or parent_user.username
+                    )
+
+                rows.append(
+                    {
+                        "user_id": student_user.id if student_user else None,
+                        "username": student_user.username if student_user else admission_value,
+                        "name": student_name,
+                        "email": student_user.email if student_user else "",
+                        "role_id": role.id,
+                        "role_name": role.name,
+                        "access_status": bool(getattr(student_user, "access_status", False)) if student_user else False,
+                        "staff_no": "",
+                        "admission_no": student.admission_no,
+                        "roll_no": student.roll_no,
+                        "class_name": student.current_class.name if student.current_class else "",
+                        "section_name": student.current_section.name if student.current_section else "",
+                        "parent_user_id": parent_user.id if parent_user else None,
+                        "parent_username": parent_user.username if parent_user else "",
+                        "parent_name": parent_name,
+                        "parent_email": parent_user.email if parent_user else "",
+                        "parent_access_status": bool(getattr(parent_user, "access_status", False)) if parent_user else False,
+                    }
+                )
+
+            return Response({"role": {"id": role.id, "name": role.name}, "users": rows}, status=status.HTTP_200_OK)
         elif search:
             user_role_qs = user_role_qs.filter(
                 Q(user__username__icontains=search)
@@ -570,6 +638,9 @@ class DueFeesLoginPermissionViewSet(viewsets.ViewSet):
         admission_no = (request.query_params.get("admission_no") or "").strip()
         name = (request.query_params.get("name") or "").strip()
 
+        if not class_id and not section_id and not admission_no and not name:
+            return Response({"users": []}, status=status.HTTP_200_OK)
+
         students_qs = Student.objects.select_related("current_class", "current_section", "guardian")
         if not request.user.is_superuser and request.user.school_id:
             students_qs = students_qs.filter(school_id=request.user.school_id)
@@ -592,7 +663,13 @@ class DueFeesLoginPermissionViewSet(viewsets.ViewSet):
         if admission_no:
             students_qs = students_qs.filter(admission_no__icontains=admission_no)
         if name:
-            students_qs = students_qs.filter(Q(first_name__icontains=name) | Q(last_name__icontains=name))
+            name_filter = Q(first_name__icontains=name) | Q(last_name__icontains=name)
+            parts = [part for part in name.split(" ") if part]
+            if len(parts) >= 2:
+                first_name = parts[0]
+                last_name = " ".join(parts[1:])
+                name_filter |= Q(first_name__icontains=first_name, last_name__icontains=last_name)
+            students_qs = students_qs.filter(name_filter)
 
         outstanding_qs = FeesAssignment.objects.filter(
             student_id__in=students_qs.values_list("id", flat=True),
